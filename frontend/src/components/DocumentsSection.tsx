@@ -5,13 +5,15 @@ import type { ContractDocument } from '../api/types'
 import { formatFileSize, validateDocumentFile } from '../lib/documentFile'
 import { getErrorMessage } from '../lib/errors'
 import { formatDateTime } from '../lib/format'
-import { useDocuments } from '../lib/useDocuments'
+import type { DocumentsLoadState } from '../lib/useDocuments'
 import { Alert } from './Alert'
 import { Button } from './Button'
 import { Spinner } from './Spinner'
 
 interface DocumentsSectionProps {
   contractId: string
+  /** Shared with the AI Reviews section, which needs the current version. */
+  documents: { state: DocumentsLoadState; reload: () => void }
   /** The creator or an administrator may upload new versions. */
   canUpload: boolean
 }
@@ -22,9 +24,10 @@ const FILE_ACCEPT =
 /** Documents panel for the contract detail page: upload, versions, download. */
 export function DocumentsSection({
   contractId,
+  documents,
   canUpload,
 }: DocumentsSectionProps) {
-  const { state, reload } = useDocuments(contractId)
+  const { state, reload } = documents
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [file, setFile] = useState<File | null>(null)

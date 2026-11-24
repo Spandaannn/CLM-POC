@@ -46,6 +46,11 @@ class ObligationStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ReviewStatus(str, Enum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 def enum_check(
     column: str, enum_type: type[Enum], constraint_name: str
 ) -> CheckConstraint:

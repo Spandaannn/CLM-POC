@@ -68,6 +68,27 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def no_real_ai_provider():
+    """Safety net: no test can reach the real AI provider.
+
+    backend/.env may hold a real API key. By default the provider dependency
+    reports "not configured"; tests that need AI install a fake provider.
+    """
+    from app.ai.errors import AIConfigurationError
+    from app.api.reviews import get_ai_provider_factory
+
+    def unconfigured():
+        def build():
+            raise AIConfigurationError()
+
+        return build
+
+    app.dependency_overrides[get_ai_provider_factory] = unconfigured
+    yield
+    app.dependency_overrides.pop(get_ai_provider_factory, None)
+
+
 @pytest.fixture
 def user_factory(db_session):
     """Create active (or inactive) users with unique email addresses."""

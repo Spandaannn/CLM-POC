@@ -3,11 +3,11 @@
 A proof of concept for a Legal Department to manage contracts. It currently
 provides secure session-based sign-in, end-to-end **contract metadata
 management** (create, list, search, filter, view, edit) with role/ownership
-authorization and an audit trail, and **versioned PDF/DOCX documents** per
-contract.
+authorization and an audit trail, **versioned PDF/DOCX documents** per
+contract, and optional **AI-assisted contract review** (Groq).
 
-AI-assisted review and approval workflows are designed (see
-[ARCHITECTURE.md](ARCHITECTURE.md)) but **not implemented yet**.
+Approval workflows are designed (see [ARCHITECTURE.md](ARCHITECTURE.md)) but
+**not implemented yet**.
 
 ## Architecture
 
@@ -46,6 +46,12 @@ PostgreSQL 18 (clm_db)
   history, authorised download, and `document.uploaded` audit events. Files are
   stored on the local disk under `DOCUMENT_STORAGE_PATH`; content is verified,
   not just the extension.
+- **AI review (Step 9, optional):** on a contract with a document, click
+  **Run AI review** to get an executive summary, extracted metadata and
+  clauses, risk findings with verified source excerpts, a comparison with a
+  configurable playbook, and a history of reviews tied to document versions.
+  Powered by Groq; results are suggestions for a human legal reviewer and never
+  approve, reject, or change a contract.
 
 ## Setup
 
@@ -99,6 +105,26 @@ Never commit uploaded contracts.
 - **Permissions:** contract viewers can list and download; the creator or an
   administrator can upload.
 
+### AI review (optional)
+
+Add to `backend/.env` (the file is Git-ignored; never commit a key) and restart
+the backend:
+
+```text
+AI_PROVIDER=groq
+GROQ_API_KEY=<your key from the Groq console>
+GROQ_MODEL=openai/gpt-oss-20b
+```
+
+Without these the app works normally and the AI section says AI is not
+configured. Contract text is sent to Groq **only** when a signed-in user clicks
+**Run AI review** (never on upload). Supported files: text-based PDF and
+`.docx` (scanned PDFs have no text and OCR is not supported). The playbook is an
+illustrative baseline, not an approved legal policy; point `AI_PLAYBOOK_PATH`
+at your own JSON. On Groq's free tier only short contracts fit the
+8,000-tokens-per-minute limit. See [HANDOFF.md](HANDOFF.md) for all variables
+and limitations.
+
 ## Checks
 
 ```powershell
@@ -106,14 +132,16 @@ cd backend;  .\.venv\Scripts\python.exe -m pytest -q
 cd frontend; npm run lint; npm run build
 ```
 
-Last run (2026-11-24): backend **66 passed**; lint exit 0 (0 warnings);
+Last run (2026-11-24): backend **150 passed**; lint exit 0 (0 warnings);
 build exit 0. Backend tests use the real PostgreSQL database inside a
 rolled-back transaction, so they must not assume tables are empty; a dedicated
 test database is recommended.
 
 ## Limitations
 
-- No AI review, approvals, or obligations yet.
+- No approvals or obligations yet. AI review output varies, can be wrong, and
+  is limited by the provider's rate limits (free-tier Groq: short contracts
+  only); no OCR for scanned PDFs.
 - One logical document per contract (versions only); no document or contract
   deletion; no malware scanning; no user management UI (users are created by
   script).

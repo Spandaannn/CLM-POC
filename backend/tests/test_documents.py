@@ -6,7 +6,7 @@ path) and database changes are rolled back after each test.
 
 import io
 import zipfile
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -193,10 +193,15 @@ def test_upload_rejects_invalid_files(
     assert response.status_code == 415, response.text
     assert str(storage_root) not in response.text
     assert stored_files(storage_root) == []
-    assert db_session.scalars(select(ContractDocument)).all() == []
+    assert db_session.scalars(select(ContractDocument).where(
+        ContractDocument.contract_id == UUID(contract_id)
+    )).all() == []
     assert (
         db_session.scalars(
-            select(AuditEvent).where(AuditEvent.action == "document.uploaded")
+            select(AuditEvent).where(
+            AuditEvent.contract_id == UUID(contract_id),
+            AuditEvent.action == "document.uploaded",
+        )
         ).all()
         == []
     )
@@ -313,7 +318,9 @@ def test_new_upload_creates_next_version_and_keeps_old_files(
     # Both physical files survive and neither overwrote the other.
     rows = {
         row.version_number: row
-        for row in db_session.scalars(select(ContractDocument))
+        for row in db_session.scalars(select(ContractDocument).where(
+        ContractDocument.contract_id == UUID(contract_id)
+    ))
     }
     assert (storage_root / rows[1].storage_path).read_bytes() == first_content
     assert (storage_root / rows[2].storage_path).read_bytes() == second_content
@@ -348,7 +355,10 @@ def test_upload_creates_audit_event(
     document = upload(client, csrf, contract_id, name="Master.pdf").json()
 
     events = db_session.scalars(
-        select(AuditEvent).where(AuditEvent.action == "document.uploaded")
+        select(AuditEvent).where(
+            AuditEvent.contract_id == UUID(contract_id),
+            AuditEvent.action == "document.uploaded",
+        )
     ).all()
 
     assert len(events) == 1

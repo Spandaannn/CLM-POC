@@ -1,10 +1,217 @@
 # CLM POC — Handoff
 
 **Date:** 2026-11-24
-**Current phase:** Step 8 — Document Management implemented (uncommitted).
-**Status:** Authentication, contract management, and versioned PDF/DOCX
-document upload/list/download are implemented and verified. AI review,
-approvals, and obligations remain unimplemented.
+**Current phase:** Step 9 — AI Contract Review implemented (uncommitted).
+**Status:** Authentication, contract management, versioned PDF/DOCX documents,
+and Groq-powered AI review (summary, metadata, clauses, risk findings,
+playbook comparison, review history) are implemented and verified. Approvals
+and obligations remain unimplemented.
+
+## Step 9 — AI contract review (2026-11-24)
+
+### Verified results (all actually run)
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q` | **150 passed** (66 from Steps 5-8 + 84 new), 1 upstream warning, on the baseline database. The review and document tests (67) were also run while manual-test rows existed in the database and passed, after their queries were scoped to their own contract |
+| `python -m alembic check` | "No new upgrade operations detected"; `alembic current` = `20261124_0002 (head)` |
+| `npm run lint` | exit 0, 0 warnings |
+| `npm run build` | exit 0, 61 modules, JS 368.64 kB (112.20 kB gzip) |
+| Browser (temporary user, since deleted) | no-document state; upload does **not** start a review; loading state during analysis; full result view; history of 2 reviews with switching; upload of v2 flips earlier reviews to "Earlier version" with a notice; simulated rate-limit message; simulated "not configured" state (button disabled, rest of app works) |
+| **Real Groq** | **Yes — see "Real Groq testing" below** (mocked tests never use the network) |
+| Secrets | Real key found only in `backend/.env` (Git-ignored, untracked); scan of all 144 project files |
+| Data after checks | 1 user, 1 contract (`CTR-2026-574921E2`), 0 documents, 0 reviews, 2 audit events (unchanged); test files removed |
+
+### Real Groq testing (manual, distinct from the mocked suite)
+
+A **fictional** services agreement (made-up parties, `.docx`) was uploaded to a
+temporary contract and reviewed through the real UI with
+`openai/gpt-oss-20b`.
+
+- Review 1 succeeded in about 9 s. All sections were produced and every quoted
+  excerpt was matched to the document. Two problems were found and fixed:
+  the AI judged risks from the wrong party's perspective (it did not know which
+  party is "us"), and the UI showed "INR INR 1,200,000".
+- Review 2 failed with Groq **413** ("Request too large ... TPM limit 8000").
+  Diagnosis with direct calls: Groq's free `on_demand` tier allows 8,000
+  tokens per minute and counts *prompt tokens + the requested output cap*;
+  the original 8,000-token cap alone consumed that budget. With a 4,500 cap the
+  answer was cut off (reasoning tokens); with `reasoning_effort: low` it
+  completed in about 1,900 tokens. Fixes: configurable `AI_MAX_OUTPUT_TOKENS`
+  (default 4000), `GROQ_REASONING_EFFORT` (default `low`), and a cut-off answer
+  (`finish_reason: length`) is now rejected instead of saved.
+- Final review (final settings) succeeded in about 5 s with the correct
+  "our organisation" perspective, 8 clauses, 5 risk findings and 10 playbook
+  results. Two reviews were stored and shown in history before being deleted.
+- In total about eight real requests were made (three completed reviews, the
+  rest diagnostics of the free-tier limit), all with fictional text. Results
+  vary between runs: the first review flagged the missing data-protection
+  clause as a risk, the final one did not (the playbook comparison still marked
+  it "Not met" in the first; always verify).
+
+### What was built
+
+Backend packages/modules:
+
+- `app/ai/` — provider-independent layer: `base.py` (interface), `errors.py`,
+  `groq.py` (the only Groq-specific code), `factory.py`, `playbook.py` +
+  `baseline_playbook.json`, `prompts.py`.
+- `app/services/text_extraction.py` — PDF (`pypdf`) and DOCX (standard-library
+  XML) text extraction.
+- `app/services/reviews.py`, `app/api/reviews.py`, `app/schemas/review.py`.
+
+Endpoints (all need a session; POST also needs CSRF):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/ai/status` | `configured`, provider, model, message, `max_input_chars` — never a key |
+| POST | `/api/contracts/{id}/reviews` | Run an AI review of the **current** document version (the only call that sends text to the AI) |
+| GET | `/api/contracts/{id}/reviews` | History, newest first (counts, version, reviewer) |
+| GET | `/api/reviews/{id}` | Full review |
+
+Error mapping (generic, safe messages; provider bodies/keys never returned):
+409 no document; 422 no extractable text or unreadable file; 429 provider
+rate limit/quota; 413 document too large for provider limits; 503 AI not
+configured; 504 timeout; 502 provider/auth/model/malformed or cut-off reply.
+Statuses are checked in order: auth, CSRF, contract access, document exists,
+configuration, extraction, provider call.
+
+How a review works: current document version located (read-only) -> provider
+configured? -> text extracted locally -> text cut to `AI_MAX_INPUT_CHARS` ->
+Groq asked for one JSON object -> JSON validated (rejected, not stored, if
+malformed or cut off) -> every quotation checked against the real text (a
+quote that cannot be found is dropped and labelled "not verified") -> stored
+with the exact document id **and version**, plus a `ai_review.completed` audit
+event. Failed attempts that reached the provider write `ai_review.failed` with
+only an error code. Contract text, prompts, raw AI replies and keys are never
+stored or logged.
+
+Content of a review: executive summary (overview, parties, commercial terms,
+key dates/obligations); metadata (parties, effective/expiry date, value and
+currency, governing law, renewal terms; unknown = `null`, shown as "Not found
+in the document"); clauses (payment, termination, confidentiality, indemnity,
+limitation of liability, IP, data protection, dispute resolution, governing
+law, renewal); risk findings (title, description, severity low/medium/high/
+critical, category, concern, suggested action, verified excerpt — labelled
+"AI observations"); playbook comparison (one row per configured rule: met /
+partially met / not met / not assessed — labelled "Configured rules").
+Page and clause numbers are deliberately not produced.
+
+Playbook: none existed, so `app/ai/baseline_playbook.json` (10 rules) ships as
+an **illustrative baseline, not an approved company legal policy**; this is
+stated in the data, the API and the UI. Replace it with `AI_PLAYBOOK_PATH`
+(same JSON shape). Rule titles/requirements are copied into each stored review,
+so history stays accurate if the playbook is edited later (restart the backend
+after editing — playbooks are cached).
+
+Perspective: the model is told "our organisation" is the party that is **not**
+the contract's recorded counterparty. If the counterparty field is wrong or
+missing from the text, risk direction can be wrong — keep it accurate.
+
+Permissions: anyone who can **view** a contract can start and read its reviews
+(business users: their own contracts; reviewers/approvers/admins: all). Nothing
+is sent to the AI for anyone else. A review never changes a contract, its
+status, or its document.
+
+### Database change (migration `20261124_0002`)
+
+`review_results` could not hold the requested data (it had only `contract_id`,
+`document_id`, `provider`, `model`, `review_type`, `summary`, `findings`), so
+an additive migration was required. Applied to the local database
+(`alembic upgrade head`); existing rows (none) get safe defaults. Reused:
+`findings` (risk findings), `summary` (overview), `provider`, `model`,
+`review_type` (`full_review`), `document_id`, `created_at`.
+
+Added columns: `document_version` (int), `status` (`completed`|`failed`,
+check constraint; only completed reviews are stored today, failures are in the
+audit log), `initiated_by` (FK users, SET NULL, indexed), `summary_details`,
+`extracted_metadata`, `clauses`, `playbook_results`, `source_info` (all JSONB
+with defaults), `playbook_version`. The metadata column is named
+`extracted_metadata` because `metadata` is reserved by SQLAlchemy. Downgrade
+drops them.
+
+### Configuration (`backend/.env`; never commit it)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `AI_PROVIDER` | none | `groq` is the only provider; empty = AI disabled, app unaffected |
+| `GROQ_API_KEY` | none | Secret. Held as `SecretStr`, never returned or logged |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | |
+| `GROQ_REASONING_EFFORT` | `low` | `low`/`medium`/`high`; set empty for models without it |
+| `AI_MAX_OUTPUT_TOKENS` | `4000` | Counts toward provider rate limits |
+| `AI_MAX_INPUT_CHARS` | `30000` | Contract text sent; longer files are cut off and flagged |
+| `AI_TIMEOUT_SECONDS` | `90` | |
+| `AI_PLAYBOOK_PATH` | built-in | Optional JSON playbook |
+
+Setup: add the variables to `backend/.env`, restart the backend, open a
+contract with an uploaded document, and click **Run AI review of version N**.
+`.env.example` documents the variables with an empty key.
+
+### Supported documents and limits
+
+PDF with a text layer and `.docx` (body text and tables; headers, footers,
+comments and text boxes are not read). 10 MB file limit, 300 PDF pages, text
+capped at 500,000 characters, then `AI_MAX_INPUT_CHARS` for the AI. Scanned or
+image-only PDFs are reported as having no extractable text — **OCR is not
+supported**. Encrypted PDFs and corrupted files are rejected with a clear
+message. The stored file is only ever read.
+
+### Files changed in Step 9
+
+Backend (new): `app/ai/*` (7 files), `app/services/text_extraction.py`,
+`app/services/reviews.py`, `app/api/reviews.py`, `app/schemas/review.py`,
+`alembic/versions/20261124_0002_ai_review_fields.py`, `tests/helpers.py`,
+`tests/test_text_extraction.py`, `tests/test_ai_provider.py`,
+`tests/test_reviews.py`. Backend (edited): `app/models/review_result.py`,
+`app/models/enums.py`, `app/core/config.py`, `app/api/router.py`,
+`app/main.py`, `requirements.txt` (adds `pypdf`; `httpx` moved from dev to
+runtime), `requirements-dev.txt`, `.env.example`, `tests/conftest.py`
+(autouse fixture so no test can reach the real provider),
+`tests/test_documents.py` (queries now scoped to the test's contract).
+Frontend (new): `api/reviews.ts`, `lib/useApiResource.ts`,
+`components/AiReviewsSection.tsx`, `components/ReviewView.tsx`,
+`components/ContractFilesAndReviews.tsx`. Frontend (edited): `api/types.ts`,
+`components/DocumentsSection.tsx` (takes shared document state),
+`pages/ContractDetailPage.tsx`, `styles/global.css`. Docs: this file,
+`README.md`, `ARCHITECTURE.md`, backend/frontend READMEs.
+
+### Tests added (84)
+
+Extraction (PDF, DOCX incl. tables, scanned/empty/tiny/corrupt/mismatched
+files, DOCTYPE/entity DOCX, size cap, original file untouched); Groq adapter
+via `httpx.MockTransport` (success, 401/403/404/413/429/5xx/timeouts, malformed
+payloads, cut-off replies, key never in errors/repr/payload); factory and
+playbook; and the review API with a **fake provider** (success for PDF and
+DOCX, persistence, version association and history, excerpt verification,
+value normalisation, truncation, no-document, scanned PDF, missing file, not
+configured, all provider failures, malformed AI replies, audit events, no
+content in logs/audit, no AI call on upload, authentication, CSRF, 404s,
+stranger blocked with no provider call, reviewer allowed, contract unchanged,
+`/api/ai/status` without secrets). No normal test uses the network or quota.
+
+### Step 9 limitations
+
+- **Provider limits:** on Groq's free tier a single request (prompt + output
+  cap) must fit 8,000 tokens per minute, so only short contracts (roughly
+  8,000 characters or less) can be reviewed; larger ones return the "too large
+  for the provider's limits" message. A paid tier or a smaller
+  `AI_MAX_INPUT_CHARS` changes this. Long documents are cut off at
+  `AI_MAX_INPUT_CHARS` and the review is flagged as partial.
+- **AI quality:** results vary between runs, can miss issues or misjudge them,
+  and are never legal advice. Excerpts are verified verbatim; summaries,
+  severities and suggestions are not.
+- No OCR; DOCX headers/footers/comments not read; no page or clause numbers.
+- Synchronous request (up to `AI_TIMEOUT_SECONDS`); no background queue,
+  progress, or cancel. No per-user rate limit or cost control beyond the
+  provider's. Business users can spend quota on their own contracts.
+- Reviews are never run automatically and cannot be deleted. Failed attempts
+  are audited but not shown in the UI. The review history is not exported.
+- The baseline playbook is illustrative only.
+- Contract text is sent to Groq on each review: confirm Groq's retention and
+  data-use terms before using real contracts.
+- The tests share the real database; this step's new tests (and the Step 8
+  document tests) are scoped to their own contract so manual data cannot
+  affect them. A dedicated test database is still recommended.
 
 ## Step 8 — Document management (2026-11-24)
 
@@ -396,6 +603,7 @@ Detailed steps are in `frontend/README.md`. Verified flows:
 | `COOKIE_SECURE` | `false` | Must be `true` behind HTTPS |
 | `COOKIE_SAMESITE` | `lax` | `none` requires Secure |
 | `DOCUMENT_STORAGE_PATH` | `storage/documents` | Upload directory; relative paths resolve against `backend/`. Git-ignored; keep outside any served directory |
+| `AI_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REASONING_EFFORT`, `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_INPUT_CHARS`, `AI_TIMEOUT_SECONDS`, `AI_PLAYBOOK_PATH` | see Step 9 | AI review (optional). The key is a secret |
 
 The real database password stays in `backend/.env`, which is Git-ignored.
 
@@ -409,8 +617,8 @@ Vite variables are public; never put secrets in them.
 
 ## Known limitations
 
-- **No AI review, approval, or obligation functionality.** The dashboard
-  placeholders are informational only. Status changes are free-form (any
+- **No approval or obligation functionality.** AI review exists (Step 9);
+  the dashboard placeholders for approvals are informational only. Status changes are free-form (any
   status → any status) until approval workflow rules exist.
 - **No contract deletion** endpoint or UI.
 - **Contract audit events are written but not shown in the UI.**
@@ -436,8 +644,8 @@ Vite variables are public; never put secrets in them.
 
 ## Next steps
 
-1. Implement review findings and approval workflows (including status
-   transition rules).
+1. Implement approval workflows (including status transition rules), using
+   the AI review as input for the human reviewer.
 2. Show contract audit history on the detail page.
 3. Add frontend tests (Vitest + React Testing Library, optionally Playwright).
 4. Allow reviewers to upload; consider several documents per contract

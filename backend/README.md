@@ -21,6 +21,22 @@ approval workflows, and AI integration are not implemented yet.
   3-letter currency, `end_date >= start_date` (also enforced by DB checks).
 - CSRF required on create and update.
 
+### AI review (Step 9)
+
+- Provider-independent AI layer (`app/ai/`) with Groq as the first adapter;
+  `GET /api/ai/status`, `POST/GET /api/contracts/{id}/reviews`,
+  `GET /api/reviews/{id}`.
+- Text extraction from stored PDF (`pypdf`) and DOCX (stdlib XML); no OCR.
+- Structured results stored in `review_results` (migration `20261124_0002`):
+  summary, metadata, clauses, risk findings, playbook results, document id and
+  **version**, provider/model, status, initiating user. Quotations are verified
+  against the document text; unverifiable ones are dropped.
+- Configure with `AI_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL` (and optional
+  `GROQ_REASONING_EFFORT`, `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_INPUT_CHARS`,
+  `AI_TIMEOUT_SECONDS`, `AI_PLAYBOOK_PATH`). The key never appears in any
+  response, log, or test output. Without configuration the rest of the API is
+  unaffected. All tests mock the provider.
+
 ### Documents (Step 8)
 
 - Versioned PDF/DOCX files per contract: each upload is the next version, the
@@ -115,6 +131,14 @@ Copy-Item .env.example .env
 | `COOKIE_SECURE` | No | `false` | Send cookies only over HTTPS; set `true` in production |
 | `COOKIE_SAMESITE` | No | `lax` | `lax`, `strict`, or `none` |
 | `DOCUMENT_STORAGE_PATH` | No | `storage/documents` | Upload directory (relative to `backend/`); Git-ignored, never served publicly |
+| `AI_PROVIDER` | No | none | `groq`; empty disables AI review |
+| `GROQ_API_KEY` | No | none | Secret; keep only in `backend/.env` |
+| `GROQ_MODEL` | No | `openai/gpt-oss-20b` | |
+| `GROQ_REASONING_EFFORT` | No | `low` | `low`/`medium`/`high`, or empty to omit |
+| `AI_MAX_OUTPUT_TOKENS` | No | `4000` | Counts toward provider rate limits |
+| `AI_MAX_INPUT_CHARS` | No | `30000` | Contract characters sent to the AI |
+| `AI_TIMEOUT_SECONDS` | No | `90` | |
+| `AI_PLAYBOOK_PATH` | No | built-in | Optional JSON playbook |
 
 `COOKIE_SAMESITE=none` requires `COOKIE_SECURE=true`. `.env` is ignored by Git;
 never commit real credentials. Percent-encode special characters in the
@@ -176,6 +200,10 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 | GET | `/api/contracts/{id}/documents` | Session | List all versions, newest first |
 | GET | `/api/documents/{id}` | Session | Version metadata and version history |
 | GET | `/api/documents/{id}/download` | Session | Download a version (attachment) |
+| GET | `/api/ai/status` | Session | Is AI review configured? (no secrets) |
+| POST | `/api/contracts/{id}/reviews` | Session + CSRF | Run an AI review of the current document version |
+| GET | `/api/contracts/{id}/reviews` | Session | Review history, newest first |
+| GET | `/api/reviews/{id}` | Session | One review in full |
 
 Login is JSON:
 
@@ -272,6 +300,11 @@ Coverage:
 - `/me` with a valid session, no session, and invalid session.
 - Expired sessions and inactive users.
 - Validation errors do not echo submitted passwords.
+- AI review (84 tests, provider always mocked): text extraction (PDF, DOCX,
+  scanned/empty/corrupt/mismatched files), Groq adapter via
+  `httpx.MockTransport` (all error classes, no key leakage), factory and
+  playbook, and the review API (persistence, version history, excerpt
+  verification, failures, malformed replies, authentication, CSRF, permissions).
 - Documents (31 tests): valid PDF/DOCX, invalid extension/MIME/content, empty
   and oversized files (10 MB boundary), nonexistent contract, CSRF and
   authentication, role/ownership access, version creation with old files kept,
@@ -286,7 +319,7 @@ Coverage:
 Actual result (2026-11-24):
 
 ```text
-66 passed, 1 warning in 16.07s
+150 passed, 1 warning in 25.81s
 ```
 
 The one warning is an upstream Starlette `TestClient`/`httpx` deprecation; it

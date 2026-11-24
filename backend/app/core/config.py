@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> backend/
@@ -65,6 +65,63 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = BACKEND_DIR / path
         return path.resolve()
+
+    # --- AI review (optional: the app works without it) -------------------
+    ai_provider: str | None = Field(
+        default=None,
+        description="AI provider name. Currently only 'groq' is supported.",
+    )
+    # SecretStr keeps the key out of repr() and accidental log output.
+    groq_api_key: SecretStr | None = Field(default=None)
+    groq_model: str = Field(default="openai/gpt-oss-20b")
+    ai_timeout_seconds: float = Field(default=90.0, ge=5, le=300)
+    ai_max_input_chars: int = Field(
+        default=30_000,
+        ge=1_000,
+        le=400_000,
+        description="Maximum contract characters sent to the AI provider.",
+    )
+    ai_max_output_tokens: int = Field(
+        default=4000,
+        ge=500,
+        le=16000,
+        description=(
+            "Upper bound on the AI's answer length (including any reasoning). "
+            "Providers count this against rate limits, so keep it modest."
+        ),
+    )
+    groq_reasoning_effort: str | None = Field(
+        default="low",
+        description=(
+            "Reasoning effort for Groq's gpt-oss models (low, medium, high). "
+            "Leave empty for models that do not support it."
+        ),
+    )
+    ai_playbook_path: Path | None = Field(
+        default=None,
+        description="Optional JSON playbook replacing the built-in baseline.",
+    )
+
+    @field_validator("ai_provider")
+    @classmethod
+    def normalize_ai_provider(cls, value: str | None) -> str | None:
+        value = (value or "").strip().lower()
+        return value or None
+
+    @field_validator("groq_reasoning_effort")
+    @classmethod
+    def validate_reasoning_effort(cls, value: str | None) -> str | None:
+        value = (value or "").strip().lower()
+        if value and value not in ("low", "medium", "high"):
+            raise ValueError("GROQ_REASONING_EFFORT must be low, medium, or high")
+        return value or None
+
+    @field_validator("groq_api_key", mode="before")
+    @classmethod
+    def blank_api_key_is_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("database_url")
     @classmethod

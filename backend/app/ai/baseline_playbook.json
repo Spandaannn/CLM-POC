@@ -1,0 +1,78 @@
+{
+  "id": "baseline-poc",
+  "name": "Baseline POC playbook",
+  "version": "1",
+  "disclaimer": "Illustrative baseline rules for this proof of concept. This is NOT an approved company legal policy and has not been reviewed by lawyers. Replace it with your organisation's own playbook (see AI_PLAYBOOK_PATH).",
+  "rules": [
+    {
+      "id": "payment_terms",
+      "category": "payment_terms",
+      "title": "Payment terms are defined",
+      "requirement": "The contract states the amount or pricing basis, the payment schedule or due dates, and the consequence of late payment.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "termination",
+      "category": "termination",
+      "title": "Termination rights and notice are defined",
+      "requirement": "The contract sets out when and how each party may terminate, including notice periods, and what happens on termination.",
+      "severity_if_not_met": "high"
+    },
+    {
+      "id": "confidentiality",
+      "category": "confidentiality",
+      "title": "Confidentiality obligations are included",
+      "requirement": "The contract protects confidential information of both parties and states how long the obligation lasts, including after termination.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "indemnity",
+      "category": "indemnity",
+      "title": "Indemnity is scoped and balanced",
+      "requirement": "Any indemnity is clearly scoped (what is covered, by whom) and is not unlimited or one-sided against our organisation.",
+      "severity_if_not_met": "high"
+    },
+    {
+      "id": "limitation_of_liability",
+      "category": "limitation_of_liability",
+      "title": "Liability is capped",
+      "requirement": "The contract limits each party's liability (for example with a monetary cap) and does not leave our organisation with unlimited liability.",
+      "severity_if_not_met": "high"
+    },
+    {
+      "id": "intellectual_property",
+      "category": "intellectual_property",
+      "title": "Intellectual property ownership is allocated",
+      "requirement": "The contract states who owns existing and newly created intellectual property and what licences are granted.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "data_protection",
+      "category": "data_protection",
+      "title": "Data protection is addressed",
+      "requirement": "Where personal or sensitive data is handled, the contract sets data protection and security obligations.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "dispute_resolution",
+      "category": "dispute_resolution",
+      "title": "Dispute resolution is specified",
+      "requirement": "The contract names a dispute resolution method (for example negotiation, mediation, arbitration or courts) and a venue or seat.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "governing_law",
+      "category": "governing_law",
+      "title": "Governing law is specified",
+      "requirement": "The contract states which law governs it and which courts or forum have jurisdiction.",
+      "severity_if_not_met": "medium"
+    },
+    {
+      "id": "renewal",
+      "category": "renewal",
+      "title": "Term and renewal are explicit",
+      "requirement": "The contract states its term, whether it renews automatically, and how renewal or non-renewal notice is given.",
+      "severity_if_not_met": "low"
+    }
+  ]
+}

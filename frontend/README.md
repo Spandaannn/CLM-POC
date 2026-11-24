@@ -14,6 +14,23 @@ features are **not implemented** yet.
 | `/contracts/:id` | `ContractDetailPage` | 404 / 403 / connection-error states; Edit shown only to creator or admin; includes the Documents section |
 | `/contracts/:id/edit` | `EditContractPage` | Same form plus status; server still enforces permissions |
 
+### AI review (Step 9)
+
+`components/AiReviewsSection.tsx` (below Documents on the detail page) shows
+AI availability, the document version to review, a **Run AI review of version
+N** button (the only action that sends text to the AI), a loading state while
+analysing, the review history (version, date, reviewer, severity counts,
+Current/Earlier version) and the selected review (`components/ReviewView.tsx`):
+executive summary, extracted metadata, risk findings with severity badges and
+verified source excerpts ("AI observations"), playbook comparison table
+("Configured rules"), and collapsible clauses. Every missing value reads "Not
+found in the document", and a permanent notice says results are AI-generated
+suggestions that never approve, reject, or change the contract. Messages cover:
+no document, no extractable text, AI not configured, rate limit/quota, too
+large, timeout, and generic failure. Data hooks: `lib/useApiResource.ts`; the
+documents query is shared via `components/ContractFilesAndReviews.tsx` so the
+section always knows the current version.
+
 ### Documents (Step 8)
 
 `components/DocumentsSection.tsx` (on the detail page): upload PDF/DOCX
@@ -222,6 +239,14 @@ npm run preview  # preview the production build on 4173
      false sign-out.
 
 ## Verification performed
+
+### Step 9 — AI review (2026-11-24)
+
+`npm run lint` -> exit 0, 0 warnings; `npm run build` -> exit 0, 61 modules.
+Browser-verified with a real Groq review of a fictional contract: no-document
+state, upload does not start a review, loading state, full results, history
+switching, "Earlier version" after uploading v2, simulated rate-limit and
+"not configured" states. No automated UI tests for reviews yet.
 
 ### Step 8 — documents (2026-11-24)
 
