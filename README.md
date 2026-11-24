@@ -135,6 +135,13 @@ at your own JSON. On Groq's free tier only short contracts fit the
 8,000-tokens-per-minute limit. See [HANDOFF.md](HANDOFF.md) for all variables
 and limitations.
 
+## Deployment
+
+The app deploys as one Docker web service (FastAPI also serves the built React
+app) plus a PostgreSQL database; see [DEPLOYMENT.md](DEPLOYMENT.md) for the
+free Render setup, its limitations (uploaded files are **not** persistent on the
+free plan) and demo-account creation.
+
 ## Checks
 
 ```powershell

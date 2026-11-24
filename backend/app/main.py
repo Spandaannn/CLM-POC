@@ -1,17 +1,21 @@
 """FastAPI application entry point."""
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.router import api_router
+from app.core.config import get_settings
 from app.core.exceptions import (
     sqlalchemy_exception_handler,
     validation_exception_handler,
 )
+from app.core.frontend import mount_frontend
 
 
-def create_app() -> FastAPI:
+def create_app(frontend_dist: Path | None = None) -> FastAPI:
     application = FastAPI(
         title="CLM API",
         version="0.1.0",
@@ -39,6 +43,13 @@ def create_app() -> FastAPI:
         ):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Production only: serve the built React app. This must come last so the
+    # catch-all route never shadows an API route. Disabled unless
+    # FRONTEND_DIST_DIR is set, so local development is unchanged.
+    dist_dir = frontend_dist or get_settings().frontend_dist_dir
+    if dist_dir is not None:
+        mount_frontend(application, dist_dir)
 
     return application
 

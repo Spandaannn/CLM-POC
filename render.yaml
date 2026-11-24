@@ -1,0 +1,49 @@
+# Render Blueprint: one free Docker web service + one free PostgreSQL database.
+# Contains NO secrets. GROQ_API_KEY is entered in the Render dashboard when the
+# Blueprint is created (sync: false means "prompt me, do not store in Git").
+#
+# Free-plan limits (see DEPLOYMENT.md): the web service sleeps after ~15 minutes
+# without traffic, uploaded files are ephemeral, and the free database expires
+# 30 days after creation.
+
+databases:
+  - name: clm-db
+    plan: free
+    region: singapore
+    databaseName: clm_db
+    user: clm_user
+    # Internal connections only (the web service). To create demo users from
+    # your own machine, temporarily add your IP in the dashboard (DEPLOYMENT.md).
+    ipAllowList: []
+
+services:
+  - type: web
+    name: clm-poc
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    # Deploys happen only when you click "Manual Deploy" in the dashboard.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clm-db
+          property: connectionString
+      # Frontend and API share one origin, so Lax cookies work; Secure because
+      # Render serves HTTPS.
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: lax
+      - key: AI_PROVIDER
+        value: groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: GROQ_API_KEY
+        sync: false
+      # DOCUMENT_STORAGE_PATH and FRONTEND_DIST_DIR default to values set in the
+      # Dockerfile (/app/storage/documents, /app/frontend_dist). Override them
+      # here only if you need to.

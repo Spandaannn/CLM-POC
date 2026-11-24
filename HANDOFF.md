@@ -7,6 +7,25 @@ Groq-powered AI review, and a two-stage approval workflow (Legal Reviewer, then
 Legal Approver, with request-changes, rejection, resubmission cycles, and full
 history) are implemented and verified. Obligations remain unimplemented.
 
+## Deployment preparation (free Render, uncommitted)
+
+One Docker web service serves the API and the built React app from the same
+origin; one free Render PostgreSQL database. Details, exact dashboard settings,
+limitations and demo-account steps are in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+- New: `Dockerfile` (Node 22 build stage, Python 3.12 runtime, non-root, runs
+  `alembic upgrade head` at container start, never at build), `.dockerignore`,
+  `render.yaml` (free plans, no secrets), `DEPLOYMENT.md`,
+  `backend/app/core/frontend.py`, `backend/tests/test_frontend_serving.py`.
+- Changed: `app/main.py` (`create_app(frontend_dist=None)`; mounts the frontend
+  only when `FRONTEND_DIST_DIR` is set, so local development is unchanged),
+  `app/core/config.py` (`frontend_dist_dir`), `scripts/create_user.py`
+  (optional `--role`, default `admin`).
+- Free plan: uploaded files live on ephemeral storage and disappear on restart,
+  redeploy or spin-down; the free database expires after 30 days.
+- The Docker image was not built here (Docker is not installed on the
+  development machine).
+
 ## Step 10 — Contract approval workflow (2026-11-25)
 
 ### Verified results (all actually run)

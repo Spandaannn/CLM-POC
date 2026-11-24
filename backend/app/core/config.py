@@ -58,6 +58,22 @@ class Settings(BaseSettings):
         ),
     )
 
+    frontend_dist_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Directory containing the built React app. When set, FastAPI "
+            "serves it from the same origin as the API (used by the Docker "
+            "image). Leave empty in local development."
+        ),
+    )
+
+    @field_validator("frontend_dist_dir", mode="before")
+    @classmethod
+    def blank_frontend_dir_is_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @property
     def document_storage_root(self) -> Path:
         """Absolute, resolved storage directory."""

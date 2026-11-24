@@ -1,13 +1,16 @@
-"""Interactively create the first application user (an administrator).
+"""Interactively create an application user (an administrator by default).
 
 Run from the backend directory:
 
     python scripts/create_user.py
+    python scripts/create_user.py --role legal_reviewer
 
-The password is entered with getpass and is never echoed or passed on the
+--role is one of: admin (default), business_user, legal_reviewer,
+legal_approver. The password is entered with getpass and is never echoed or passed on the
 command line. No credentials are stored in this file.
 """
 
+import argparse
 import getpass
 import sys
 from pathlib import Path
@@ -73,8 +76,20 @@ def prompt_password() -> str:
         return password
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create a CLM user.")
+    parser.add_argument(
+        "--role",
+        choices=[role.value for role in UserRole],
+        default=UserRole.ADMIN.value,
+        help="Role of the new user (default: admin).",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
-    print("Create the first CLM administrator account")
+    role = parse_args().role
+    print(f"Create a CLM user with role: {role}")
     full_name = prompt_full_name()
     email = prompt_email()
     password = prompt_password()
@@ -92,8 +107,8 @@ def main() -> int:
                 full_name=full_name,
                 email=email,
                 password_hash=hash_password(password),
-                # "admin" is one of the values allowed by ck_users_role.
-                role=UserRole.ADMIN.value,
+                # Every UserRole value is allowed by ck_users_role.
+                role=role,
                 is_active=True,
             )
             db.add(user)
@@ -109,7 +124,7 @@ def main() -> int:
         print(f"  {type(exc).__name__}: {exc}")
         return 1
 
-    print(f"Created administrator account: {email}")
+    print(f"Created {role} account: {email}")
     return 0
 
 
