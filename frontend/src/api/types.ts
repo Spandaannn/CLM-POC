@@ -91,3 +91,26 @@ export interface ContractUpdateRequest
   extends Partial<ContractCreateRequest> {
   status?: ContractStatus
 }
+
+/** One stored version of a contract's document. */
+export interface ContractDocument {
+  id: string
+  contract_id: string
+  original_filename: string
+  mime_type: string
+  /** Size in bytes. */
+  file_size: number
+  version_number: number
+  /** True for the latest version. */
+  is_current: boolean
+  uploaded_by: string
+  uploaded_by_name: string | null
+  uploaded_at: string
+}
+
+export interface ContractDocumentListResponse {
+  /** Every version, newest first. */
+  items: ContractDocument[]
+  total: number
+  current: ContractDocument | null
+}

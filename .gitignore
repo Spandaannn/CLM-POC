@@ -26,8 +26,12 @@ dist-ssr/
 *.pem
 *.key
 
-# Local document storage (not wired up yet)
+# Uploaded contract documents (confidential - never commit)
 storage/
+backend/storage/
+**/storage/documents/
+*.pdf
+*.docx
 
 # Editors / OS
 .vscode/

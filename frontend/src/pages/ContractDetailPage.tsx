@@ -2,6 +2,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { Alert } from '../components/Alert'
 import { Button } from '../components/Button'
+import { DocumentsSection } from '../components/DocumentsSection'
 import { PageMessage } from '../components/PageMessage'
 import { Spinner } from '../components/Spinner'
 import { useContract } from '../lib/useContract'
@@ -190,6 +191,8 @@ export function ContractDetailPage() {
           {contract.description || 'No description has been added.'}
         </p>
       </section>
+
+      <DocumentsSection contractId={contract.id} canUpload={canEdit} />
     </div>
   )
 }

@@ -49,6 +49,23 @@ class Settings(BaseSettings):
         description="SameSite policy for the session and CSRF cookies.",
     )
 
+    document_storage_path: Path = Field(
+        default=Path("storage/documents"),
+        description=(
+            "Directory where uploaded contract files are stored. A relative "
+            "path is resolved against the backend/ directory. It must never "
+            "be inside a publicly served directory."
+        ),
+    )
+
+    @property
+    def document_storage_root(self) -> Path:
+        """Absolute, resolved storage directory."""
+        path = self.document_storage_path.expanduser()
+        if not path.is_absolute():
+            path = BACKEND_DIR / path
+        return path.resolve()
+
     @field_validator("database_url")
     @classmethod
     def normalize_database_url(cls, value: str) -> str:

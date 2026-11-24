@@ -21,6 +21,20 @@ approval workflows, and AI integration are not implemented yet.
   3-letter currency, `end_date >= start_date` (also enforced by DB checks).
 - CSRF required on create and update.
 
+### Documents (Step 8)
+
+- Versioned PDF/DOCX files per contract: each upload is the next version, the
+  latest is `is_current`, and older rows/files are kept. Uses the existing
+  `contract_documents` table, so **no migration** was needed.
+- Validation of extension, MIME type and file signature (PDF `%PDF-`; DOCX zip
+  with `[Content_Types].xml` and `word/document.xml`), 10 MB limit (413).
+- Stored at `DOCUMENT_STORAGE_PATH/contracts/<contract_id>/<document_id>.<ext>`
+  with server-generated names; the database holds a relative path and the API
+  never returns it. Download refuses paths outside the storage root and returns
+  a generic 404 if the file is missing.
+- Viewers of a contract can list/download; the creator or an admin can upload.
+  `document.uploaded` audit events. Needs `python-multipart`.
+
 ### Authentication
 
 - FastAPI app with `/health` and `/health/db`.
@@ -100,6 +114,7 @@ Copy-Item .env.example .env
 | `SESSION_TTL_MINUTES` | No | `480` | Absolute session lifetime |
 | `COOKIE_SECURE` | No | `false` | Send cookies only over HTTPS; set `true` in production |
 | `COOKIE_SAMESITE` | No | `lax` | `lax`, `strict`, or `none` |
+| `DOCUMENT_STORAGE_PATH` | No | `storage/documents` | Upload directory (relative to `backend/`); Git-ignored, never served publicly |
 
 `COOKIE_SAMESITE=none` requires `COOKIE_SECURE=true`. `.env` is ignored by Git;
 never commit real credentials. Percent-encode special characters in the
@@ -157,6 +172,10 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 | POST | `/api/contracts` | Session + CSRF | Create a draft contract |
 | GET | `/api/contracts/{id}` | Session | Contract detail (404 missing, 403 not permitted) |
 | PATCH | `/api/contracts/{id}` | Session + CSRF | Partial update, including status |
+| POST | `/api/contracts/{id}/documents` | Session + CSRF (creator/admin) | Upload PDF/DOCX (max 10 MB) as the next version |
+| GET | `/api/contracts/{id}/documents` | Session | List all versions, newest first |
+| GET | `/api/documents/{id}` | Session | Version metadata and version history |
+| GET | `/api/documents/{id}/download` | Session | Download a version (attachment) |
 
 Login is JSON:
 
@@ -253,6 +272,11 @@ Coverage:
 - `/me` with a valid session, no session, and invalid session.
 - Expired sessions and inactive users.
 - Validation errors do not echo submitted passwords.
+- Documents (31 tests): valid PDF/DOCX, invalid extension/MIME/content, empty
+  and oversized files (10 MB boundary), nonexistent contract, CSRF and
+  authentication, role/ownership access, version creation with old files kept,
+  audit events, download headers and bytes, filename path traversal, tampered
+  stored path, and a missing stored file. Files go to a temp directory.
 - Contracts: creation with server fields and audit event, unique numbers,
   rejected client-supplied system fields, validation, auth and CSRF
   enforcement, search/filter/pagination, role and ownership access, detail and
@@ -262,7 +286,7 @@ Coverage:
 Actual result (2026-11-24):
 
 ```text
-35 passed, 1 warning in 6.63s
+66 passed, 1 warning in 16.07s
 ```
 
 The one warning is an upstream Starlette `TestClient`/`httpx` deprecation; it

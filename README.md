@@ -1,11 +1,12 @@
 # CLM POC — Contract Lifecycle Management
 
 A proof of concept for a Legal Department to manage contracts. It currently
-provides secure session-based sign-in and end-to-end **contract metadata
-management**: create, list, search, filter, view, and edit contracts, with
-role/ownership authorization and an audit trail.
+provides secure session-based sign-in, end-to-end **contract metadata
+management** (create, list, search, filter, view, edit) with role/ownership
+authorization and an audit trail, and **versioned PDF/DOCX documents** per
+contract.
 
-Document upload, AI-assisted review, and approval workflows are designed (see
+AI-assisted review and approval workflows are designed (see
 [ARCHITECTURE.md](ARCHITECTURE.md)) but **not implemented yet**.
 
 ## Architecture
@@ -40,6 +41,11 @@ PostgreSQL 18 (clm_db)
     reviewers and approvers can view all; admins can view and edit all.
   - `contract.created` / `contract.updated` audit events with field-level diffs.
   - Input validation on client and server, plus database check constraints.
+- **Documents (Step 8):** upload PDF/DOCX (max 10 MB) on the contract detail
+  page, each upload saved as a new version with older versions kept, version
+  history, authorised download, and `document.uploaded` audit events. Files are
+  stored on the local disk under `DOCUMENT_STORAGE_PATH`; content is verified,
+  not just the extension.
 
 ## Setup
 
@@ -76,6 +82,23 @@ host-specific). API docs: http://127.0.0.1:8000/docs.
 Percent-encode special characters in the password. See
 [backend/README.md](backend/README.md) for all variables.
 
+### Document storage
+
+Uploaded contracts are written to `DOCUMENT_STORAGE_PATH` (default
+`backend/storage/documents`, created automatically; set it in `backend/.env`).
+Layout: `contracts/<contract-id>/<document-id>.pdf|docx`. The directory is
+Git-ignored and is **not** served by the frontend; keep it outside any public
+directory, restrict OS access, and back it up together with the database.
+Never commit uploaded contracts.
+
+- **Allowed:** `.pdf` and `.docx`, up to 10 MB; extension, MIME type and real
+  content must all be valid.
+- **Versioning:** every upload becomes the next version of the contract's
+  document (v1, v2, ...); the latest is marked *Current* and earlier files are
+  never overwritten or removed.
+- **Permissions:** contract viewers can list and download; the creator or an
+  administrator can upload.
+
 ## Checks
 
 ```powershell
@@ -83,15 +106,17 @@ cd backend;  .\.venv\Scripts\python.exe -m pytest -q
 cd frontend; npm run lint; npm run build
 ```
 
-Last run (2026-11-24): backend **35 passed**; lint exit 0 (0 warnings);
+Last run (2026-11-24): backend **66 passed**; lint exit 0 (0 warnings);
 build exit 0. Backend tests use the real PostgreSQL database inside a
 rolled-back transaction, so they must not assume tables are empty; a dedicated
 test database is recommended.
 
 ## Limitations
 
-- No document upload/download, AI review, approvals, or obligations yet.
-- No contract deletion; no user management UI (users are created by script).
+- No AI review, approvals, or obligations yet.
+- One logical document per contract (versions only); no document or contract
+  deletion; no malware scanning; no user management UI (users are created by
+  script).
 - No frontend automated tests (verified via build, lint, live API smoke test,
   and manual browser flows).
 - Development only: no HTTPS, rate limiting, or production deployment config.

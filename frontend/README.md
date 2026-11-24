@@ -11,8 +11,18 @@ features are **not implemented** yet.
 |---|---|---|
 | `/contracts` | `ContractsPage` | Real API data; search, status/type filters, pagination kept in the URL; loading, error (retry), empty and no-match states |
 | `/contracts/new` | `NewContractPage` | Client-side validation mirrors the API; new contracts start as drafts |
-| `/contracts/:id` | `ContractDetailPage` | 404 / 403 / connection-error states; Edit shown only to creator or admin |
+| `/contracts/:id` | `ContractDetailPage` | 404 / 403 / connection-error states; Edit shown only to creator or admin; includes the Documents section |
 | `/contracts/:id/edit` | `EditContractPage` | Same form plus status; server still enforces permissions |
+
+### Documents (Step 8)
+
+`components/DocumentsSection.tsx` (on the detail page): upload PDF/DOCX
+(client checks mirror the server: type, non-empty, 10 MB), version-history table
+with Current/Older badge, size, upload date and uploader, and a Download button.
+Loading, error-with-retry, empty, success, and error states. Uploads send
+`FormData` through the CSRF helper (`api/documents.ts`); downloads fetch a blob
+with the session cookie so errors show inside the page. Data hook:
+`lib/useDocuments.ts`; validation: `lib/documentFile.ts`.
 
 Shared pieces: `api/contracts.ts` (calls), `api/csrf.ts` (CSRF-protected
 mutations with one retry), `components/ContractForm.tsx`, `lib/contractForm.ts`
@@ -212,6 +222,14 @@ npm run preview  # preview the production build on 4173
      false sign-out.
 
 ## Verification performed
+
+### Step 8 — documents (2026-11-24)
+
+`npm run lint` -> exit 0, 0 warnings; `npm run build` -> exit 0, 56 modules.
+Browser-verified: empty state, client-side rejection of wrong type / empty /
+over-10 MB files, PDF upload (v1), DOCX upload (v2), version history, download
+of an older version (exact bytes, original filename), server rejection message,
+missing-file message, and phone width. No automated UI tests for documents yet.
 
 ### Lint-warning fix (2026-11-24)
 

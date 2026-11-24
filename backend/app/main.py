@@ -17,8 +17,8 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description=(
             "Contract Lifecycle Management POC API. This phase provides "
-            "health checks, session-based authentication, and contract "
-            "metadata management."
+            "health checks, session-based authentication, contract "
+            "metadata management, and versioned contract documents."
         ),
     )
 
@@ -34,7 +34,9 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def disable_auth_response_caching(request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(("/api/auth", "/api/contracts")):
+        if request.url.path.startswith(
+            ("/api/auth", "/api/contracts", "/api/documents")
+        ):
             response.headers["Cache-Control"] = "no-store"
         return response
 

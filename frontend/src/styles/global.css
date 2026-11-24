@@ -1281,3 +1281,43 @@ svg {
     gap: 0.2rem;
   }
 }
+
+/* Documents section (contract detail) */
+.documents__header h2 {
+  margin-bottom: 0.25rem;
+}
+
+.documents__subheading {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.documents__empty {
+  padding: 1.25rem;
+}
+
+.documents__empty h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.documents__version {
+  font-weight: 600;
+}
+
+.documents__filename {
+  overflow-wrap: anywhere;
+}
+
+.upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.upload-form .field {
+  flex: 1 1 18rem;
+  min-width: 0;
+}

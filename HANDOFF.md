@@ -1,13 +1,115 @@
 # CLM POC — Handoff
 
 **Date:** 2026-11-24
-**Current phase:** Step 7 — Contract Management complete.
-**Status:** Authentication, frontend shell, and contract metadata management
-(create, list, search/filter, detail, edit, authorization, audit events) are
-implemented and verified end to end. Document, review, and approval features
-remain unimplemented.
+**Current phase:** Step 8 — Document Management implemented (uncommitted).
+**Status:** Authentication, contract management, and versioned PDF/DOCX
+document upload/list/download are implemented and verified. AI review,
+approvals, and obligations remain unimplemented.
 
-## Stabilisation fixes (2026-11-24, after Step 7)
+## Step 8 — Document management (2026-11-24)
+
+### Verified results (all actually run)
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q` | **66 passed** (35 existing + 31 new document tests), 1 upstream warning |
+| `python -m alembic check` | "No new upgrade operations detected" — **no migration needed** |
+| `npm run lint` | exit 0, 0 warnings |
+| `npm run build` | exit 0, 56 modules, JS 354.30 kB (109.04 kB gzip) |
+| Browser (temporary business user, since deleted) | empty state; invalid type, empty file and >10 MB rejected client-side; PDF uploaded as v1; DOCX (empty browser MIME) as v2; version history and "Current" badge; download of v1 returned the exact 51-byte PDF under its original name; server rejection of a fake `.pdf` shown as a clear message; missing stored file shows a safe message; phone width has no page-level horizontal scroll |
+| Data after checks | 1 user, 1 contract (`CTR-2026-574921E2`), **0 documents**, 2 audit events (unchanged); temporary test files removed from storage |
+
+### Schema decision: no migration
+
+The existing `contract_documents` table already has `original_filename`,
+`stored_filename`, `storage_path`, `mime_type`, `file_size`, `version_number`,
+`uploaded_by`, `is_current`, `uploaded_at`, a unique
+`(contract_id, version_number)` and a partial unique index allowing one
+`is_current` row per contract. So **each contract has one logical document and
+its versions are the rows**. An upload adds version N+1, marks it current,
+clears the flag on the previous row, and keeps every older row and file.
+Consequence: a contract cannot hold several unrelated documents (for example
+an agreement plus an annex) — that would need a `document_group_id` column and
+a changed unique index (a future migration).
+
+### API
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/contracts/{id}/documents` | Session + CSRF; creator or admin | Upload PDF/DOCX as the next version |
+| GET | `/api/contracts/{id}/documents` | Session; contract viewer | All versions, newest first, plus `current` |
+| GET | `/api/documents/{id}` | Session; contract viewer | Version metadata, `latest_version_number`, full history |
+| GET | `/api/documents/{id}/download` | Session; contract viewer | File as `attachment`, `nosniff`, `no-store` |
+
+Rules and security:
+
+- **Who can do what:** anyone who may *view* the contract may list, read
+  metadata, and download (business user: own contracts; reviewer/approver/admin:
+  all). Only someone who may *edit* the contract (creator or admin) may upload.
+  Legal reviewers therefore cannot upload yet.
+- **Validation (all three must agree):** extension `.pdf`/`.docx`; declared
+  MIME equal to the expected type or `application/octet-stream` (some systems
+  do not know `.docx`); real content — PDF must start `%PDF-`, DOCX must be a
+  zip containing `[Content_Types].xml` and `word/document.xml`, with entry-count
+  and uncompressed-size limits against zip bombs. Errors: 415 unsupported,
+  413 over 10 MB (read in 64 KB chunks and stopped at the limit), 422 empty,
+  404 missing contract, 403 not permitted.
+- **Storage:** `<DOCUMENT_STORAGE_PATH>/contracts/<contract_id>/<document_id>.<ext>`.
+  Every path part is server generated; the client filename is sanitised and
+  stored only as display metadata. Files are created with exclusive mode, so
+  nothing is overwritten. `storage_path` in the database is relative; it and
+  the stored filename are never returned by the API or written to audit logs.
+- **Download:** the stored path is resolved and refused if it leaves the storage
+  root; a missing file returns a generic 404 (details are logged server-side,
+  never returned).
+- **Concurrency:** the contract row is locked (`SELECT ... FOR UPDATE`) while
+  the next version number is chosen. If the database step fails, the new file
+  is deleted.
+- **Audit:** `document.uploaded` (entity type `document`) with filename,
+  version, size, and MIME type. Downloads are not audited.
+
+### Frontend
+
+Documents section on the contract detail page (`DocumentsSection.tsx`): file
+picker with client-side checks mirroring the server, upload (labelled "Upload
+version N"), version-history table (version, Current/Older badge, file, size,
+uploaded date, uploader, Download), and loading, error-with-retry, empty,
+success and error states. Upload uses `FormData` through the existing CSRF
+helper; download fetches a blob with the session cookie so errors appear in the
+page instead of a raw JSON tab. New files: `api/documents.ts`,
+`lib/useDocuments.ts`, `lib/documentFile.ts`, `components/DocumentsSection.tsx`.
+
+### Files changed in Step 8
+
+Backend: `app/api/documents.py` (new), `app/services/documents.py` (new),
+`app/schemas/document.py` (new), `app/api/router.py`, `app/core/config.py`
+(`document_storage_path`), `app/main.py` (no-store for `/api/documents`),
+`tests/test_documents.py` (new), `requirements.txt`, `.env.example`.
+Frontend: the new files above plus `api/client.ts` (FormData + blob support),
+`api/types.ts`, `pages/ContractDetailPage.tsx`, `styles/global.css`.
+Repo: `.gitignore`, `README.md`, `ARCHITECTURE.md`, backend/frontend READMEs.
+
+### New dependency
+
+`python-multipart` (`>=0.0.9,<1.0`, 0.0.34 installed) — FastAPI cannot parse
+file uploads without it. Run `pip install -r requirements.txt` after pulling.
+
+### Step 8 limitations
+
+- One logical document per contract (see above); no deletion of documents.
+- The whole multipart body is received before the size check runs, so a very
+  large upload still consumes bandwidth/temp space before a 413 (put a body
+  limit on the reverse proxy in production).
+- No virus/malware scanning; content checks confirm file *format*, not safety.
+- Files are not encrypted at rest; the storage directory must be protected and
+  backed up together with the database. Deleting a contract in the database
+  would leave its files on disk (there is no deletion endpoint today).
+- Upload is limited to the creator/admin; downloads are not audited.
+- `.gitignore` also ignores every `*.pdf` and `*.docx` in the repo so sample
+  contracts are never committed accidentally.
+- No automated frontend tests for the documents UI (verified in the browser).
+
+## Earlier: stabilisation fixes (2026-11-24, after Step 7)
 
 ### Backend test failure — `test_access_is_limited_by_role_and_ownership`
 
@@ -293,6 +395,7 @@ Detailed steps are in `frontend/README.md`. Verified flows:
 | `SESSION_TTL_MINUTES` | `480` | Absolute session lifetime |
 | `COOKIE_SECURE` | `false` | Must be `true` behind HTTPS |
 | `COOKIE_SAMESITE` | `lax` | `none` requires Secure |
+| `DOCUMENT_STORAGE_PATH` | `storage/documents` | Upload directory; relative paths resolve against `backend/`. Git-ignored; keep outside any served directory |
 
 The real database password stays in `backend/.env`, which is Git-ignored.
 
@@ -306,14 +409,13 @@ Vite variables are public; never put secrets in them.
 
 ## Known limitations
 
-- **No document, review, or approval functionality.** The dashboard
+- **No AI review, approval, or obligation functionality.** The dashboard
   placeholders are informational only. Status changes are free-form (any
   status → any status) until approval workflow rules exist.
 - **No contract deletion** endpoint or UI.
 - **Contract audit events are written but not shown in the UI.**
-- **Git:** a local repository was initialised on 2026-11-24 with no commits
-  and no remote. `.gitignore` excludes `.env`, `.venv`, `node_modules`,
-  `dist`, caches, and key files.
+- **Git:** `.gitignore` excludes `.env`, `.venv`, `node_modules`, `dist`,
+  caches, key files, the document storage directory, and `*.pdf`/`*.docx`.
 - **No automated frontend test suite.** Verification used TypeScript build,
   lint, HTTP integration checks, and browser/Lighthouse checks. Vitest/React
   Testing Library should be added with the first contract UI.
@@ -334,10 +436,11 @@ Vite variables are public; never put secrets in them.
 
 ## Next steps
 
-1. Add PDF/DOCX upload, versioning, and authorized downloads.
-2. Implement review findings and approval workflows (including status
+1. Implement review findings and approval workflows (including status
    transition rules).
-3. Show contract audit history on the detail page.
-4. Add frontend tests (Vitest + React Testing Library, optionally Playwright).
+2. Show contract audit history on the detail page.
+3. Add frontend tests (Vitest + React Testing Library, optionally Playwright).
+4. Allow reviewers to upload; consider several documents per contract
+   (`document_group_id` migration) and document deletion.
 5. Add production deployment: same-origin static hosting, HTTPS, secure cookies,
    rate limiting, and auth audit logging.

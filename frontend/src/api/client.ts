@@ -38,8 +38,11 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers)
   const hasBody = options.body !== undefined
+  // FormData (file uploads) must not get a JSON Content-Type: the browser
+  // sets multipart/form-data together with its boundary.
+  const isFormData = options.body instanceof FormData
 
-  if (hasBody) {
+  if (hasBody && !isFormData) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -49,7 +52,11 @@ export async function apiRequest<T>(
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
-      body: hasBody ? JSON.stringify(options.body) : undefined,
+      body: hasBody
+        ? isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body)
+        : undefined,
       credentials: 'include',
     })
   } catch {
@@ -68,4 +75,29 @@ export async function apiRequest<T>(
   }
 
   return payload as T
+}
+
+/** Download a binary response (for example a stored document) as a Blob. */
+export async function apiDownload(path: string): Promise<Blob> {
+  let response: Response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      credentials: 'include',
+    })
+  } catch {
+    throw new ApiError(
+      0,
+      'Unable to reach the server. Check that the backend is running and try again.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await parseResponseBody(response)
+    const message =
+      extractErrorMessage(payload) ?? `Download failed (${response.status}).`
+    throw new ApiError(response.status, message)
+  }
+
+  return response.blob()
 }

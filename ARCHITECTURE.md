@@ -117,6 +117,8 @@ Upload flow:
 
 Example storage key: `contracts/<contract-id>/<document-id>.pdf`.
 
+**Implemented (Step 8):** the flow above is live for PDF and DOCX up to 10 MB. The storage root is `DOCUMENT_STORAGE_PATH`; `contract_documents.storage_path` holds the key relative to it, so internal paths are never exposed. Validation checks extension, declared MIME type, and file signature (`%PDF-`, or a zip containing `[Content_Types].xml` and `word/document.xml` with size/entry limits). Versioning uses the existing table: one logical document per contract, one row per version, `version_number` assigned under a row lock, exactly one `is_current` row (enforced by a partial unique index), older rows and files kept. Uploads are limited to users who may edit the contract; viewing and downloading follow contract visibility. See HANDOFF.md for details and limitations (no malware scanning, one document per contract, no deletion).
+
 Downloads must pass backend authorization before the file is returned. New document versions receive new files and records rather than silently overwriting earlier versions. Files and database backups must be coordinated. Local storage is suitable for a single-instance POC but requires redesign for multiple backend instances.
 
 ## 7. AI integration
