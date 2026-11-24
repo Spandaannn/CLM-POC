@@ -292,7 +292,16 @@ def test_access_is_limited_by_role_and_ownership(
 ) -> None:
     owner = user_factory()
     owner_csrf = login(client, owner.email)
-    contract = create_contract(client, owner_csrf).json()
+    # Tests share the real database (changes are rolled back), so it may
+    # already hold contracts created through the app. Reviewers and admins can
+    # see every contract, so their list checks are scoped to this unique title
+    # instead of assuming the table is otherwise empty.
+    marker = f"Access test {uuid4().hex}"
+    contract = create_contract(client, owner_csrf, title=marker).json()
+
+    def visible_test_contract_ids() -> list[str]:
+        body = client.get("/api/contracts", params={"q": marker}).json()
+        return [item["id"] for item in body["items"]]
 
     other_business_user = user_factory()
     other_csrf = login(client, other_business_user.email)
@@ -306,8 +315,10 @@ def test_access_is_limited_by_role_and_ownership(
         ).status_code
         == 403
     )
+    # Business users see only their own contracts; this user has none.
     other_list = client.get("/api/contracts").json()
     assert other_list["total"] == 0
+    assert visible_test_contract_ids() == []
 
     # A reviewer can read every contract but cannot edit someone else's
     # metadata in this phase.
@@ -317,7 +328,7 @@ def test_access_is_limited_by_role_and_ownership(
     assert (
         client.get(f"/api/contracts/{contract['id']}").status_code == 200
     )
-    assert client.get("/api/contracts").json()["total"] == 1
+    assert visible_test_contract_ids() == [contract["id"]]
     assert (
         update_contract(
             client, reviewer_csrf, contract["id"], title="Not allowed"
@@ -328,13 +339,16 @@ def test_access_is_limited_by_role_and_ownership(
     admin = user_factory(role=UserRole.ADMIN)
     admin_csrf = login(client, admin.email)
 
-    assert client.get("/api/contracts").json()["total"] == 1
+    assert visible_test_contract_ids() == [contract["id"]]
     admin_update = update_contract(
         client, admin_csrf, contract["id"], title="Admin correction"
     )
     assert admin_update.status_code == 200
     assert admin_update.json()["title"] == "Admin correction"
 
+    # The client's cookie belongs to whoever logged in last, so sign back in
+    # as the owner to check the owner's (ownership-scoped) list.
+    login(client, owner.email)
     owner_list = client.get("/api/contracts").json()
     assert owner_list["total"] == 1
     assert owner_list["items"][0]["id"] == contract["id"]

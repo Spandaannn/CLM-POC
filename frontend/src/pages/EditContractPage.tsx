@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { getContract, updateContract } from '../api/contracts'
-import type { Contract } from '../api/types'
+import { updateContract } from '../api/contracts'
 import { useAuth } from '../auth/useAuth'
 import { Button } from '../components/Button'
 import { ContractForm } from '../components/ContractForm'
@@ -9,70 +8,17 @@ import { contractToFormValues, toContractPayload } from '../lib/contractForm'
 import type { ContractFormValues } from '../lib/contractForm'
 import { PageMessage } from '../components/PageMessage'
 import { Spinner } from '../components/Spinner'
-import { ApiError, getErrorMessage } from '../lib/errors'
+import { getErrorMessage } from '../lib/errors'
+import { useContract } from '../lib/useContract'
 
 export function EditContractPage() {
   const { contractId } = useParams<{ contractId: string }>()
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const [contract, setContract] = useState<Contract | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { state, reload } = useContract(contractId)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [notFound, setNotFound] = useState(false)
-  const [forbidden, setForbidden] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-
-  useEffect(() => {
-    if (!contractId) {
-      setIsLoading(false)
-      setNotFound(true)
-      return
-    }
-
-    let cancelled = false
-    setIsLoading(true)
-    setLoadError(null)
-    setNotFound(false)
-    setForbidden(false)
-    setContract(null)
-
-    getContract(contractId)
-      .then((data) => {
-        if (!cancelled) setContract(data)
-      })
-      .catch((caughtError: unknown) => {
-        if (cancelled) return
-
-        if (caughtError instanceof ApiError) {
-          if (caughtError.status === 404) {
-            setNotFound(true)
-            return
-          }
-          if (caughtError.status === 403) {
-            setForbidden(true)
-            return
-          }
-        }
-
-        setLoadError(getErrorMessage(caughtError))
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [contractId, reloadKey])
-
-  const canEdit = Boolean(
-    user &&
-      contract &&
-      (user.role === 'admin' || contract.created_by === user.id),
-  )
 
   async function handleSubmit(values: ContractFormValues) {
     if (!contractId) return
@@ -95,7 +41,7 @@ export function EditContractPage() {
     }
   }
 
-  if (isLoading) {
+  if (state.status === 'loading') {
     return (
       <div className="state-panel" role="status">
         <Spinner size={30} label="Loading contract" />
@@ -104,7 +50,7 @@ export function EditContractPage() {
     )
   }
 
-  if (notFound) {
+  if (state.status === 'not-found') {
     return (
       <PageMessage
         eyebrow="Not found"
@@ -120,7 +66,30 @@ export function EditContractPage() {
     )
   }
 
-  if (forbidden || (contract && !canEdit)) {
+  if (state.status === 'error') {
+    return (
+      <PageMessage
+        eyebrow="Connection problem"
+        title="Unable to load this contract"
+        action={
+          <Button variant="secondary" onClick={reload}>
+            Try again
+          </Button>
+        }
+      >
+        {state.message}
+      </PageMessage>
+    )
+  }
+
+  const contract = state.status === 'loaded' ? state.contract : null
+  const canEdit = Boolean(
+    user &&
+      contract &&
+      (user.role === 'admin' || contract.created_by === user.id),
+  )
+
+  if (!contract || !canEdit) {
     return (
       <PageMessage
         eyebrow="Access denied"
@@ -136,25 +105,6 @@ export function EditContractPage() {
       >
         Only the user who created the contract or an administrator can edit its
         metadata.
-      </PageMessage>
-    )
-  }
-
-  if (loadError || !contract) {
-    return (
-      <PageMessage
-        eyebrow="Connection problem"
-        title="Unable to load this contract"
-        action={
-          <Button
-            variant="secondary"
-            onClick={() => setReloadKey((current) => current + 1)}
-          >
-            Try again
-          </Button>
-        }
-      >
-        {loadError ?? 'The contract could not be loaded.'}
       </PageMessage>
     )
   }

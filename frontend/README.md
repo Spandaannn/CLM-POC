@@ -213,6 +213,14 @@ npm run preview  # preview the production build on 4173
 
 ## Verification performed
 
+### Lint-warning fix (2026-11-24)
+
+`npm run lint` → exit 0, 0 warnings; `npm run build` → exit 0, 52 modules.
+The four `set-state-in-effect` warnings were removed by deriving loading state
+from request-tagged results (`lib/useContract.ts`, `ContractsPage`) and keying
+the filter form by the URL query. Browser re-check: search, URL filters,
+back/forward, Clear, detail, edit, 404, and Try again all behave as before.
+
 ### Step 7 — contracts (2026-11-24)
 
 ```text
@@ -281,8 +289,8 @@ sessions. No fake users or contract data are shipped in the UI.
 
 - No document, review, or approval functionality yet; contracts cannot be
   deleted from the UI.
-- Contract pages fetch in `useEffect` (4 lint warnings); a data-fetching
-  library or router loaders would remove them.
+- Contract data is fetched in effects with derived loading state
+  (`lib/useContract.ts`, `ContractsPage`); there is no client-side cache.
 - No automated frontend unit/component tests; verification used build, lint,
   HTTP integration checks, and browser checks.
 - Responsive CSS is implemented, but no physical mobile-device test was run.

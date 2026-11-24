@@ -7,13 +7,61 @@
 implemented and verified end to end. Document, review, and approval features
 remain unimplemented.
 
+## Stabilisation fixes (2026-11-24, after Step 7)
+
+### Backend test failure — `test_access_is_limited_by_role_and_ownership`
+
+- **Symptom:** reviewer list expected `total == 1`, got `2`.
+- **Cause:** test isolation, not access control. Tests run on the real
+  database inside a rolled-back transaction, so they also see committed rows.
+  A real contract (`CTR-2026-574921E2`, created manually through the app by
+  the existing admin) was present. Reviewers and admins are *meant* to see all
+  contracts, so the API was right; the test wrongly assumed the table was
+  empty.
+- **Second latent bug found in the same test:** the final "owner list" check
+  ran while the admin was still the logged-in user (the client cookie belongs
+  to the last login), so it never checked the owner's list.
+- **Fix (`backend/tests/test_contracts.py` only):** the contract gets a unique
+  title, and reviewer/admin visibility is asserted with `?q=<marker>` and an
+  exact ID match. The test signs back in as the owner before the owner-list
+  check. No application code, fixtures, or data were changed; the manual
+  contract was left in place.
+
+### Frontend lint warnings (4 × `react(set-state-in-effect)`)
+
+- **Cause:** contract pages reset loading/error state synchronously at the
+  start of data-fetching effects, and the list page copied URL params into
+  input state in an effect.
+- **Fix:**
+  - New `src/lib/useContract.ts` hook shared by `ContractDetailPage` and
+    `EditContractPage`. Each result is tagged with the request it answers, and
+    "loading" is derived when the newest request has no result yet. Retry
+    increments a reload key.
+  - `ContractsPage`: same derived-loading pattern for the list. The filter
+    form became a `FilterBar` component keyed by the URL query string, so
+    back/forward and Clear remount it with the URL's values (no sync effect).
+- Behaviour is unchanged; verified in the browser (see below).
+
+### Verified results
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q` | **35 passed**, 1 upstream warning, with the manual contract still in the database |
+| `npm run lint` | exit 0, **0 warnings, 0 errors** |
+| `npm run build` | exit 0, 52 modules, JS 348.13 kB (107.62 kB gzip) |
+| Browser (temporary business user, since deleted) | protected redirect and login; empty state; search applies and updates the URL; back/forward restore inputs and results; no-match state and Clear filters; status/type filters from the URL; detail; edit and save with success banner; 404 page; error page with Try again issuing a new request; sign out |
+| Data after checks | 1 user, 1 contract (`CTR-2026-574921E2`), 2 audit events — unchanged |
+
+Recommendation (not done): point tests at a dedicated `clm_test` database so
+manual data can never affect test results.
+
 ## Verified status (Step 7, 2026-11-24)
 
 | Check | Command | Result |
 |---|---|---|
 | Backend tests | `python -m pytest -q` | **35 passed** (15 auth/health + 20 contracts), 1 upstream warning |
 | Migration | `python -m alembic current` | `20261123_0001 (head)` — no new migration needed |
-| Frontend lint | `npm run lint` | exit 0, 4 `set-state-in-effect` warnings (data-fetching effects) |
+| Frontend lint | `npm run lint` | exit 0, 4 `set-state-in-effect` warnings at the time; **fixed since — now 0** |
 | Frontend build | `npm run build` | exit 0, 51 modules, JS 348.22 kB (107.56 kB gzip) |
 | Live API smoke | Vite proxy → FastAPI → PostgreSQL | **20/20 passed** (auth, CSRF, validation, search/filters, update, cross-user 403, audit events, logout) |
 | Browser flow | In-app browser | protected redirect → login → empty state → create → detail → edit → filtered list → dashboard → sign out |

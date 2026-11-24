@@ -83,9 +83,10 @@ cd backend;  .\.venv\Scripts\python.exe -m pytest -q
 cd frontend; npm run lint; npm run build
 ```
 
-Last run (2026-11-24): backend **35 passed**; lint exit 0 (4 warnings);
-build exit 0. Backend tests use the real PostgreSQL database inside a rolled-back
-transaction.
+Last run (2026-11-24): backend **35 passed**; lint exit 0 (0 warnings);
+build exit 0. Backend tests use the real PostgreSQL database inside a
+rolled-back transaction, so they must not assume tables are empty; a dedicated
+test database is recommended.
 
 ## Limitations
 

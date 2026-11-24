@@ -1,13 +1,10 @@
-import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { getContract } from '../api/contracts'
-import type { Contract } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { Alert } from '../components/Alert'
 import { Button } from '../components/Button'
 import { PageMessage } from '../components/PageMessage'
 import { Spinner } from '../components/Spinner'
-import { ApiError, getErrorMessage } from '../lib/errors'
+import { useContract } from '../lib/useContract'
 import {
   formatDate,
   formatDateTime,
@@ -27,57 +24,9 @@ export function ContractDetailPage() {
   const location = useLocation()
   const locationState = location.state as DetailLocationState | null
 
-  const [contract, setContract] = useState<Contract | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [notFound, setNotFound] = useState(false)
-  const [forbidden, setForbidden] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
+  const { state, reload } = useContract(contractId)
 
-  useEffect(() => {
-    if (!contractId) {
-      setIsLoading(false)
-      setNotFound(true)
-      return
-    }
-
-    let cancelled = false
-    setIsLoading(true)
-    setError(null)
-    setNotFound(false)
-    setForbidden(false)
-    setContract(null)
-
-    getContract(contractId)
-      .then((data) => {
-        if (!cancelled) setContract(data)
-      })
-      .catch((caughtError: unknown) => {
-        if (cancelled) return
-
-        if (caughtError instanceof ApiError) {
-          if (caughtError.status === 404) {
-            setNotFound(true)
-            return
-          }
-          if (caughtError.status === 403) {
-            setForbidden(true)
-            return
-          }
-        }
-
-        setError(getErrorMessage(caughtError))
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [contractId, reloadKey])
-
-  if (isLoading) {
+  if (state.status === 'loading') {
     return (
       <div className="state-panel" role="status">
         <Spinner size={30} label="Loading contract" />
@@ -86,7 +35,7 @@ export function ContractDetailPage() {
     )
   }
 
-  if (notFound) {
+  if (state.status === 'not-found') {
     return (
       <PageMessage
         eyebrow="Not found"
@@ -102,7 +51,7 @@ export function ContractDetailPage() {
     )
   }
 
-  if (forbidden) {
+  if (state.status === 'forbidden') {
     return (
       <PageMessage
         eyebrow="Access denied"
@@ -119,25 +68,23 @@ export function ContractDetailPage() {
     )
   }
 
-  if (error || !contract) {
+  if (state.status === 'error') {
     return (
       <PageMessage
         eyebrow="Connection problem"
         title="Unable to load this contract"
         action={
-          <Button
-            variant="secondary"
-            onClick={() => setReloadKey((current) => current + 1)}
-          >
+          <Button variant="secondary" onClick={reload}>
             Try again
           </Button>
         }
       >
-        {error ?? 'The contract could not be loaded.'}
+        {state.message}
       </PageMessage>
     )
   }
 
+  const { contract } = state
   const canEdit = Boolean(
     user &&
       (user.role === 'admin' || contract.created_by === user.id),

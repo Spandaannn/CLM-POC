@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { listContracts } from '../api/contracts'
-import type { Contract, ContractStatus } from '../api/types'
+import type { ContractListResponse, ContractStatus } from '../api/types'
 import { Alert } from '../components/Alert'
 import { Button } from '../components/Button'
 import { Spinner } from '../components/Spinner'
@@ -31,67 +31,28 @@ function getPage(params: URLSearchParams): number {
   return Number.isInteger(value) && value > 0 ? value : 1
 }
 
-export function ContractsPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [searchInput, setSearchInput] = useState('')
-  const [statusInput, setStatusInput] = useState('')
-  const [typeInput, setTypeInput] = useState('')
-  const [contracts, setContracts] = useState<Contract[]>([])
-  const [total, setTotal] = useState(0)
-  const [pages, setPages] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
+type ListResult =
+  | { key: string; data: ContractListResponse; error: null }
+  | { key: string; data: null; error: string }
 
-  const queryString = searchParams.toString()
-  const page = getPage(new URLSearchParams(queryString))
-  const hasFilters = Boolean(
-    searchParams.get('q') ||
-      searchParams.get('status') ||
-      searchParams.get('contract_type'),
+interface FilterBarProps {
+  params: URLSearchParams
+  hasFilters: boolean
+  onApply: (next: URLSearchParams) => void
+  onClear: () => void
+}
+
+/**
+ * Search and filter inputs. The parent remounts this component (via `key`)
+ * whenever the URL query changes, so the inputs always start from the URL —
+ * including after browser back/forward — without a syncing effect.
+ */
+function FilterBar({ params, hasFilters, onApply, onClear }: FilterBarProps) {
+  const [searchInput, setSearchInput] = useState(params.get('q') ?? '')
+  const [statusInput, setStatusInput] = useState(params.get('status') ?? '')
+  const [typeInput, setTypeInput] = useState(
+    params.get('contract_type') ?? '',
   )
-
-  // Keep the filter form in sync with browser back/forward navigation.
-  useEffect(() => {
-    const params = new URLSearchParams(queryString)
-    setSearchInput(params.get('q') ?? '')
-    setStatusInput(params.get('status') ?? '')
-    setTypeInput(params.get('contract_type') ?? '')
-  }, [queryString])
-
-  useEffect(() => {
-    let cancelled = false
-    const params = new URLSearchParams(queryString)
-    const status = params.get('status')
-
-    setIsLoading(true)
-    setError(null)
-
-    listContracts({
-      page: getPage(params),
-      page_size: PAGE_SIZE,
-      q: params.get('q') ?? undefined,
-      status: status ? (status as ContractStatus) : undefined,
-      contract_type: params.get('contract_type') ?? undefined,
-    })
-      .then((data) => {
-        if (cancelled) return
-        setContracts(data.items)
-        setTotal(data.total)
-        setPages(data.pages)
-      })
-      .catch((caughtError: unknown) => {
-        if (cancelled) return
-        setError(getErrorMessage(caughtError))
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [queryString, reloadKey])
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -104,13 +65,133 @@ export function ContractsPage() {
     }
     next.set('page', '1')
 
-    setSearchParams(next)
+    onApply(next)
   }
 
   function clearFilters() {
     setSearchInput('')
     setStatusInput('')
     setTypeInput('')
+    onClear()
+  }
+
+  return (
+    <form className="filter-bar" onSubmit={applyFilters} role="search">
+      <div className="field filter-bar__search">
+        <label className="field__label" htmlFor="contract-search">
+          Search
+        </label>
+        <input
+          id="contract-search"
+          className="field__input"
+          type="search"
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+          placeholder="Title, number, or counterparty"
+        />
+      </div>
+
+      <div className="field">
+        <label className="field__label" htmlFor="contract-status-filter">
+          Status
+        </label>
+        <select
+          id="contract-status-filter"
+          className="field__input"
+          value={statusInput}
+          onChange={(event) => setStatusInput(event.target.value)}
+        >
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map((status) => (
+            <option key={status} value={status}>
+              {formatStatus(status)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="field">
+        <label className="field__label" htmlFor="contract-type-filter">
+          Contract type
+        </label>
+        <input
+          id="contract-type-filter"
+          className="field__input"
+          value={typeInput}
+          onChange={(event) => setTypeInput(event.target.value)}
+          placeholder="Any type"
+        />
+      </div>
+
+      <div className="filter-bar__actions">
+        <Button type="submit">Apply filters</Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={clearFilters}
+          disabled={!hasFilters && !searchInput && !statusInput && !typeInput}
+        >
+          Clear
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+export function ContractsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [reloadKey, setReloadKey] = useState(0)
+  const [result, setResult] = useState<ListResult | null>(null)
+
+  const queryString = searchParams.toString()
+  const requestKey = `${queryString}#${reloadKey}`
+  const page = getPage(new URLSearchParams(queryString))
+  const hasFilters = Boolean(
+    searchParams.get('q') ||
+      searchParams.get('status') ||
+      searchParams.get('contract_type'),
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const params = new URLSearchParams(queryString)
+    const status = params.get('status')
+
+    listContracts({
+      page: getPage(params),
+      page_size: PAGE_SIZE,
+      q: params.get('q') ?? undefined,
+      status: status ? (status as ContractStatus) : undefined,
+      contract_type: params.get('contract_type') ?? undefined,
+    })
+      .then((data) => {
+        if (!cancelled) setResult({ key: requestKey, data, error: null })
+      })
+      .catch((caughtError: unknown) => {
+        if (!cancelled) {
+          setResult({
+            key: requestKey,
+            data: null,
+            error: getErrorMessage(caughtError),
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [queryString, requestKey])
+
+  // A result only counts if it answers the current URL and retry count;
+  // otherwise the newest request is still in flight.
+  const current = result?.key === requestKey ? result : null
+  const isLoading = current === null
+  const error = current?.error ?? null
+  const contracts = current?.data?.items ?? []
+  const total = current?.data?.total ?? 0
+  const pages = current?.data?.pages ?? 0
+
+  function clearFilters() {
     setSearchParams({})
   }
 
@@ -138,65 +219,13 @@ export function ContractsPage() {
         </div>
       </div>
 
-      <form className="filter-bar" onSubmit={applyFilters} role="search">
-        <div className="field filter-bar__search">
-          <label className="field__label" htmlFor="contract-search">
-            Search
-          </label>
-          <input
-            id="contract-search"
-            className="field__input"
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Title, number, or counterparty"
-          />
-        </div>
-
-        <div className="field">
-          <label className="field__label" htmlFor="contract-status-filter">
-            Status
-          </label>
-          <select
-            id="contract-status-filter"
-            className="field__input"
-            value={statusInput}
-            onChange={(event) => setStatusInput(event.target.value)}
-          >
-            <option value="">All statuses</option>
-            {STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {formatStatus(status)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="field">
-          <label className="field__label" htmlFor="contract-type-filter">
-            Contract type
-          </label>
-          <input
-            id="contract-type-filter"
-            className="field__input"
-            value={typeInput}
-            onChange={(event) => setTypeInput(event.target.value)}
-            placeholder="Any type"
-          />
-        </div>
-
-        <div className="filter-bar__actions">
-          <Button type="submit">Apply filters</Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={clearFilters}
-            disabled={!hasFilters && !searchInput && !statusInput && !typeInput}
-          >
-            Clear
-          </Button>
-        </div>
-      </form>
+      <FilterBar
+        key={queryString}
+        params={searchParams}
+        hasFilters={hasFilters}
+        onApply={setSearchParams}
+        onClear={clearFilters}
+      />
 
       {error && (
         <div className="page-error">
