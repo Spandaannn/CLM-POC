@@ -1,8 +1,8 @@
 # CLM Backend — FastAPI and Session Authentication
 
-FastAPI application with session-based authentication and contract metadata
-management (Step 7) on top of the existing PostgreSQL schema. Document storage,
-approval workflows, and AI integration are not implemented yet.
+FastAPI application with session-based authentication, contract management,
+versioned documents, Groq-powered AI review, and a two-stage approval workflow
+on top of the PostgreSQL schema. Obligation tracking is not implemented yet.
 
 ## What is implemented
 
@@ -20,6 +20,19 @@ approval workflows, and AI integration are not implemented yet.
 - Validation: required fields, lengths, non-negative value with 2 decimals,
   3-letter currency, `end_date >= start_date` (also enforced by DB checks).
 - CSRF required on create and update.
+
+### Approval workflow (Step 10)
+
+- Two-stage approval (Legal Reviewer then Legal Approver) with request-changes,
+  rejection, and resubmission as a new cycle; full history kept. New tables
+  `approval_cycles` and `approval_actions` (migration `20261125_0003`).
+- Rules live in `app/services/approvals.py` (state machine, permissions via a
+  single `available_actions` function, row locking, audit events
+  `approval.*`). Routes in `app/api/approvals.py`.
+- The contract status is controlled by the workflow: `PATCH` can no longer set
+  `draft`/`pending_review`/`approved`/`rejected`, and contract content and
+  document uploads are allowed only while the contract is a draft (409
+  otherwise). After approval only `active`/`expired`/`terminated` can be set.
 
 ### AI review (Step 9)
 
@@ -204,6 +217,13 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 | POST | `/api/contracts/{id}/reviews` | Session + CSRF | Run an AI review of the current document version |
 | GET | `/api/contracts/{id}/reviews` | Session | Review history, newest first |
 | GET | `/api/reviews/{id}` | Session | One review in full |
+| GET | `/api/contracts/{id}/approval` | Session | Approval status, history of every cycle, and my available actions |
+| POST | `/api/contracts/{id}/approval/submit` | Session + CSRF (creator/admin) | Submit a draft: `reviewer_id`, `approver_id`, optional `comment` |
+| POST | `/api/contracts/{id}/approval/resubmit` | Session + CSRF (creator/admin) | Resubmit after changes were requested (new cycle) |
+| POST | `/api/contracts/{id}/approval/reviewer-action` | Session + CSRF | `recommend` / `request_changes` / `reject` |
+| POST | `/api/contracts/{id}/approval/approver-action` | Session + CSRF | `approve` / `request_changes` / `reject` |
+| GET | `/api/approvals/assignees` | Session | Active reviewers and approvers to choose from |
+| GET | `/api/approvals/summary` | Session | Dashboard queue for the signed-in user |
 
 Login is JSON:
 
@@ -300,6 +320,11 @@ Coverage:
 - `/me` with a valid session, no session, and invalid session.
 - Expired sessions and inactive users.
 - Validation errors do not echo submitted passwords.
+- Approval workflow (53 tests): submission and validation, reviewer/approver
+  authorisation, creator exclusion, sequential workflow, request changes and
+  resubmission, rejection, mandatory comments, invalid/duplicate transitions,
+  multi-cycle history, audit events, edit/upload locks and the closed status
+  bypass, AI review leaving approval state unchanged, assignees, dashboard.
 - AI review (84 tests, provider always mocked): text extraction (PDF, DOCX,
   scanned/empty/corrupt/mismatched files), Groq adapter via
   `httpx.MockTransport` (all error classes, no key leakage), factory and
@@ -319,7 +344,7 @@ Coverage:
 Actual result (2026-11-24):
 
 ```text
-150 passed, 1 warning in 25.81s
+203 passed, 1 warning in 86.68s
 ```
 
 The one warning is an upstream Starlette `TestClient`/`httpx` deprecation; it

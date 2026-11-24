@@ -1,11 +1,199 @@
 # CLM POC — Handoff
 
-**Date:** 2026-11-24
-**Current phase:** Step 9 — AI Contract Review implemented (uncommitted).
+**Date:** 2026-11-25
+**Current phase:** Step 10 — Contract Approval Workflow implemented (uncommitted).
 **Status:** Authentication, contract management, versioned PDF/DOCX documents,
-and Groq-powered AI review (summary, metadata, clauses, risk findings,
-playbook comparison, review history) are implemented and verified. Approvals
-and obligations remain unimplemented.
+Groq-powered AI review, and a two-stage approval workflow (Legal Reviewer, then
+Legal Approver, with request-changes, rejection, resubmission cycles, and full
+history) are implemented and verified. Obligations remain unimplemented.
+
+## Step 10 — Contract approval workflow (2026-11-25)
+
+### Verified results (all actually run)
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q` | **203 passed** (150 from Steps 5-9 + 53 new in `tests/test_approvals.py`), 1 upstream warning, on a database that also held the user's manual-test data |
+| `python -m alembic check` | "No new upgrade operations detected"; `alembic current` = `20261125_0003 (head)` |
+| `npm run lint` | exit 0, 0 warnings |
+| `npm run build` | exit 0, 64 modules, JS 385.81 kB (116.02 kB gzip) |
+| Browser (3 temporary accounts, since deleted) | invalid submit (no document) refused; submit; locked state; mandatory-comment validation; request changes; creator edit + upload v2 + resubmit (cycle 2, history kept); recommend; final-approve confirmation incl. Cancel; Approved end state; approved contract edit page (content read-only, lifecycle status saved); rejection path (danger confirm, required comment, Rejected end state); dashboard queue |
+| Frontend tests | none (the project has no test runner); verified by the documented browser run above |
+| Data after checks | 1 user, the `abc` contract, 0 approval cycles; test users/contracts/files removed; the user's own manual-test documents and AI reviews untouched |
+
+### Workflow
+
+1. The creator (or an admin) prepares a contract in **Draft** and uploads a
+   document, then **submits** it choosing an active Legal Reviewer and an active
+   Legal Approver. The contract becomes **Pending review** and is locked.
+2. The **Legal Reviewer** (assigned user, or admin) can **recommend approval**
+   (moves to the approver), **request changes** (comment required), or **reject**
+   (comment required).
+3. The **Legal Approver** (assigned user, or admin) can **approve** (comment
+   optional), **request changes** (comment required), or **reject** (comment
+   required). Approval sets the contract to **Approved**.
+4. After "changes requested" the contract returns to **Draft**; the creator can
+   edit and upload again, then **resubmit**, which starts a **new cycle**
+   (reviewer/approver can be chosen again). Earlier cycles stay in the history.
+5. Rejection is final.
+
+State machine (one row per cycle in `approval_cycles`):
+
+```text
+(submit)   -> pending_reviewer --recommend--> pending_approver --approve--> approved
+                  |  request_changes / reject      |  request_changes / reject
+                  v                                v
+        changes_requested (-> contract Draft, creator may RESUBMIT = new cycle)
+        rejected          (-> contract Rejected, final)
+```
+
+| Cycle status | Contract status |
+|---|---|
+| (never submitted) / `changes_requested` | `draft` |
+| `pending_reviewer`, `pending_approver` | `pending_review` |
+| `approved` | `approved` |
+| `rejected` | `rejected` |
+
+### Business rules (enforced on the server)
+
+- Only the creator or an admin can submit/resubmit (same rule as editing).
+- Only the assigned Legal Reviewer or an admin acts at the reviewer stage; only
+  the assigned Legal Approver or an admin acts at the approver stage. An
+  assignee whose role has since changed loses the assignment.
+- Reviewer and approver must be **different, active** users with roles
+  `legal_reviewer` / `legal_approver` (admins are not assignable). The creator and
+  the submitter can never be assigned.
+- **The creator can never decide on their own contract**, even if they are an
+  admin. Nobody who recommended in a cycle can also give that cycle's final
+  approval (matters for admin overrides).
+- Request-changes and reject need a comment of at least 10 characters; approve,
+  recommend and submit comments are optional. Max 2,000 characters.
+- Invalid transitions return 409 (for example approving a rejected contract,
+  recommending twice, resubmitting without requested changes). Order of checks:
+  authentication, CSRF, contract visibility (403/404), state (409),
+  authorisation (403), input (422).
+- Every action locks the contract row (`SELECT ... FOR UPDATE`) and runs in one
+  transaction; a partial unique index allows only one open cycle per contract.
+- Each cycle records the **document version submitted**.
+- Actions are append-only rows (cycle, sequence, type, stage, actor, comment,
+  timestamp); earlier cycles are never modified. Audit events:
+  `approval.submitted | resubmitted | recommended | changes_requested | rejected |
+  approved` (entity type `approval`) with cycle number, stage and contract
+  status change. Comments are kept in the action log, not in audit details.
+- **AI review is advisory only**: nothing links AI reviews to approval state
+  (tested).
+
+### Changes to existing behaviour (deliberate)
+
+- **A plain `PATCH /api/contracts/{id}` can no longer set `draft`,
+  `pending_review`, `approved` or `rejected`** (previously any status could be
+  set, which bypassed any workflow). Only `active`, `expired`, `terminated` can
+  be set manually, and only once the contract is approved (409 otherwise).
+- **Content can only be edited, and documents uploaded, while the contract is a
+  Draft** (409 otherwise): pending review, awaiting final approval, approved,
+  rejected, and later lifecycle states are fixed. An approved contract may still
+  change lifecycle status.
+- Two existing tests (`test_contracts.py`) set `pending_review` through PATCH;
+  they were updated (one now sets that state directly in the database, one no
+  longer edits status).
+- The contract edit form no longer offers workflow statuses; it shows a
+  lifecycle status select for approved contracts with read-only content.
+- Contracts whose status was set manually before this step (e.g. an `approved`
+  contract with no approval history) show "Not submitted" and offer no actions.
+
+### Database change (migration `20261125_0003`, additive)
+
+Two new tables; the older `approvals` table is untouched and unused.
+
+- `approval_cycles`: `contract_id`, `cycle_number` (unique per contract), `status`
+  (check constraint), `reviewer_id`, `approver_id` (must differ), `submitted_by`,
+  `document_id`/`document_version`, `submitted_at`, `completed_at`, timestamps;
+  partial unique index `uq_approval_cycles_one_open`.
+- `approval_actions`: `cycle_id`, `sequence` (unique per cycle), `action_type`,
+  `stage`, `actor_id`, `comment`, `created_at`.
+- Applied to the local database (`alembic upgrade head`). Downgrade drops both.
+
+### API (all need a session; POST needs CSRF)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/contracts/{id}/approval` | Workflow status, every cycle (newest first) with actions, and `available_actions` for the caller |
+| POST | `/api/contracts/{id}/approval/submit` | `{reviewer_id, approver_id, comment?}` — creator/admin; draft with a document |
+| POST | `/api/contracts/{id}/approval/resubmit` | Same body — after changes were requested; new cycle |
+| POST | `/api/contracts/{id}/approval/reviewer-action` | `{action: recommend\|request_changes\|reject, comment?}` |
+| POST | `/api/contracts/{id}/approval/approver-action` | `{action: approve\|request_changes\|reject, comment?}` |
+| GET | `/api/approvals/assignees` | Active reviewers and approvers that can be chosen |
+| GET | `/api/approvals/summary` | Dashboard: awaiting my action, my contracts in the workflow, counts |
+
+Changed: `PATCH /api/contracts/{id}` (status/content rules above) and
+`POST /api/contracts/{id}/documents` (409 unless Draft).
+`available_actions` is computed by the same function the endpoints use, so the UI
+never offers something the server would refuse.
+
+### Frontend
+
+- **Approval workflow panel** on the contract detail page (above Documents and
+  AI Reviews, which are unchanged): status badge, four-step progress, assigned
+  reviewer/approver, cycle and submitted document version, waiting message, role
+  based action buttons, submit/resubmit form (reviewer/approver pickers,
+  optional note; resubmit prefilled), an inline confirmation panel for every
+  decision (mandatory comment clearly marked; red warning for reject, notice for
+  final approval; Cancel), and a per-cycle timeline with actor, role, time and
+  comment. Loading, error (retry), empty and "no legal team" states.
+- Documents section shows why uploads are paused; the Edit button hides when the
+  contract is locked; the edit page explains the lock.
+- **Dashboard**: new "Approval queue" panel (awaiting my action, my contracts in
+  approval); stale "Not implemented yet" module cards corrected.
+- New files: `api/approvals.ts`, `components/ApprovalSection.tsx`,
+  `components/ApprovalSummaryPanel.tsx`; edited: `types.ts`, `format.ts`,
+  `Button.tsx` (danger variant), `ContractForm.tsx`, `EditContractPage.tsx`,
+  `ContractDetailPage.tsx`, `DocumentsSection.tsx`, `ContractFilesAndReviews.tsx`,
+  `DashboardPage.tsx`, `global.css`.
+
+### Backend files
+
+New: `app/models/approval_cycle.py`, `app/schemas/approval.py`,
+`app/services/approvals.py`, `app/api/approvals.py`,
+`alembic/versions/20261125_0003_approval_workflow.py`,
+`tests/test_approvals.py`. Edited: `app/models/enums.py`, `app/models/__init__.py`,
+`app/models/contract.py`, `app/services/contracts.py` (status/content rules),
+`app/api/documents.py`, `app/api/router.py`, `app/main.py`,
+`tests/test_contracts.py`.
+
+### Tests added (53)
+
+Submission (success, comment, creator/admin only, document required, assignee
+validation incl. inactive/wrong role/unknown/same person/creator, malformed
+input, resubmit-vs-submit); reviewer and approver authorisation (assigned,
+unassigned, admin, role changed, authentication, CSRF, visibility); creator and
+admin-creator cannot decide; same person cannot recommend and approve; full
+sequential workflow; request changes (reviewer and approver) and resubmission;
+rejection at both stages (final); mandatory comments (none/blank/short/boundary);
+duplicate and out-of-order transitions; one open cycle; three-cycle history kept
+intact; audit events (order, actors, no comment text); failed actions leave no
+trace; edit/upload locks, status bypass closed, lifecycle rules, unchanged fields
+tolerated; document versioning across cycles; AI review leaves approval state
+unchanged; assignees; dashboard summary. Queries are scoped to each test's own
+contract.
+
+### Step 10 limitations
+
+- One reviewer and one approver per cycle (no multi-step matrices, delegation,
+  reassignment, or due dates); an assignee cannot be changed mid-cycle (the
+  workflow must be sent back and resubmitted).
+- No notifications of any kind (email, in-app); users find work on the
+  dashboard queue. No e-signature, SSO, or external integrations.
+- After approval the content is fixed; there is no "amend an approved contract"
+  flow (an admin cannot edit it either). Rejected contracts cannot be reopened.
+- The contract page reloads after each action, so unsaved text in other panels
+  (for example a chosen file) is lost.
+- `GET /api/approvals/assignees` lists the legal team's names and emails to any
+  signed-in user (needed for the submit form).
+- Legal reviewers still cannot upload documents (creator/admin only).
+- Admin override exists at both stages (with the creator/recommender exclusions).
+- Contracts left in `pending_review` by the old free-form status edit have no
+  cycle and cannot be progressed; the clause-level `approvals` table is unused.
+- No automated frontend tests.
 
 ## Step 9 — AI contract review (2026-11-24)
 
@@ -617,9 +805,14 @@ Vite variables are public; never put secrets in them.
 
 ## Known limitations
 
-- **No approval or obligation functionality.** AI review exists (Step 9);
-  the dashboard placeholders for approvals are informational only. Status changes are free-form (any
-  status → any status) until approval workflow rules exist.
+- **No obligations functionality.** Approvals exist (Step 10); see its
+  limitations above.
+- **Contract status changes are server-enforced, not free-form.** `draft`,
+  `pending_review`, `approved` and `rejected` are set only by the approval
+  workflow (submit, recommend, request changes, reject, approve, resubmit). A
+  plain edit may only move an already approved contract to `active`, `expired`
+  or `terminated`. Contract content and document uploads are allowed only while
+  the contract is a draft. See "Step 10 — Contract approval workflow".
 - **No contract deletion** endpoint or UI.
 - **Contract audit events are written but not shown in the UI.**
 - **Git:** `.gitignore` excludes `.env`, `.venv`, `node_modules`, `dist`,
@@ -644,9 +837,9 @@ Vite variables are public; never put secrets in them.
 
 ## Next steps
 
-1. Implement approval workflows (including status transition rules), using
-   the AI review as input for the human reviewer.
-2. Show contract audit history on the detail page.
+1. Obligations and renewal tracking for approved/active contracts.
+2. Show contract audit history on the detail page; in-app notifications for
+   approvers.
 3. Add frontend tests (Vitest + React Testing Library, optionally Playwright).
 4. Allow reviewers to upload; consider several documents per contract
    (`document_group_id` migration) and document deletion.

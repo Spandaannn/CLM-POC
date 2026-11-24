@@ -29,6 +29,64 @@ ADMIN_ROLE = UserRole.ADMIN.value
 
 AUDIT_ENTITY_TYPE = "contract"
 
+# --- approval workflow guards ------------------------------------------------
+# Only a draft's content can change. Statuses draft / pending_review / approved /
+# rejected are controlled by the approval workflow, never by a plain edit.
+# After approval a contract may move through its lifecycle manually.
+LIFECYCLE_STATUSES = {
+    ContractStatus.ACTIVE.value,
+    ContractStatus.EXPIRED.value,
+    ContractStatus.TERMINATED.value,
+}
+LIFECYCLE_SOURCE_STATUSES = LIFECYCLE_STATUSES | {ContractStatus.APPROVED.value}
+
+
+def content_locked_message(contract: Contract, what: str = "edited") -> str:
+    """Why this contract's content can't be changed right now."""
+    if contract.status == ContractStatus.PENDING_REVIEW.value:
+        return (
+            f"This contract is under approval and cannot be {what} until "
+            "changes are requested."
+        )
+    if contract.status == ContractStatus.REJECTED.value:
+        return f"This contract was rejected and can no longer be {what}."
+    return f"Only draft contracts can be {what}. Approved contracts are fixed."
+
+
+def ensure_content_editable(contract: Contract, what: str = "edited") -> None:
+    """Raise 409 unless the contract is a draft (see the approval workflow)."""
+    if contract.status != ContractStatus.DRAFT.value:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=content_locked_message(contract, what),
+        )
+
+
+def _enforce_workflow_rules(
+    contract: Contract, changes: dict[str, dict[str, object]]
+) -> None:
+    if any(field != "status" for field in changes):
+        ensure_content_editable(contract)
+
+    if "status" in changes:
+        new_status = changes["status"]["to"]
+        if new_status not in LIFECYCLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"The status '{new_status}' is set by the approval "
+                    "workflow and cannot be changed here."
+                ),
+            )
+        if contract.status not in LIFECYCLE_SOURCE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "A contract must be approved before it can be Active, "
+                    "Expired, or Terminated."
+                ),
+            )
+
 
 def generate_contract_number(db: Session) -> str:
     """Return an unused contract number.
@@ -286,6 +344,8 @@ def update_contract(
         # A request that changes nothing is a successful no-op. Do not create
         # a misleading audit event.
         return contract
+
+    _enforce_workflow_rules(contract, changes)
 
     for field_name in changes:
         setattr(contract, field_name, data[field_name])

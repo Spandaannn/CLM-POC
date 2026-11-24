@@ -38,6 +38,31 @@ class ApprovalStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class ApprovalCycleStatus(str, Enum):
+    """Where one submission cycle currently stands."""
+
+    PENDING_REVIEWER = "pending_reviewer"  # awaiting the Legal Reviewer
+    PENDING_APPROVER = "pending_approver"  # recommended, awaiting the Approver
+    APPROVED = "approved"  # final, approved
+    REJECTED = "rejected"  # final, rejected
+    CHANGES_REQUESTED = "changes_requested"  # closed; creator may resubmit
+
+
+class ApprovalActionType(str, Enum):
+    SUBMITTED = "submitted"
+    RESUBMITTED = "resubmitted"
+    RECOMMENDED = "recommended"
+    CHANGES_REQUESTED = "changes_requested"
+    REJECTED = "rejected"
+    APPROVED = "approved"
+
+
+class ApprovalStage(str, Enum):
+    CREATOR = "creator"
+    REVIEWER = "reviewer"
+    APPROVER = "approver"
+
+
 class ObligationStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"

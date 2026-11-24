@@ -16,6 +16,8 @@ interface DocumentsSectionProps {
   documents: { state: DocumentsLoadState; reload: () => void }
   /** The creator or an administrator may upload new versions. */
   canUpload: boolean
+  /** Why uploads are paused (approval workflow), or null if they are open. */
+  lockedReason?: string | null
 }
 
 const FILE_ACCEPT =
@@ -26,6 +28,7 @@ export function DocumentsSection({
   contractId,
   documents,
   canUpload,
+  lockedReason = null,
 }: DocumentsSectionProps) {
   const { state, reload } = documents
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -111,7 +114,11 @@ export function DocumentsSection({
         </div>
       </div>
 
-      {canUpload ? (
+      {canUpload && lockedReason ? (
+        <p className="approval__lock" role="status">
+          {lockedReason}
+        </p>
+      ) : canUpload ? (
         <form className="upload-form" onSubmit={handleUpload} noValidate>
           <div className="field">
             <label className="field__label" htmlFor="document-file">

@@ -21,15 +21,11 @@ const EMPTY_VALUES: ContractFormValues = {
   status: 'draft',
 }
 
-const STATUS_OPTIONS: ContractStatus[] = [
-  'draft',
-  'pending_review',
-  'approved',
-  'rejected',
-  'active',
-  'expired',
-  'terminated',
-]
+/**
+ * Draft, pending review, approved and rejected are set only by the approval
+ * workflow. After approval a contract can move through its lifecycle manually.
+ */
+const LIFECYCLE_OPTIONS: ContractStatus[] = ['active', 'expired', 'terminated']
 
 function validate(values: ContractFormValues): FormErrors {
   const errors: FormErrors = {}
@@ -72,6 +68,10 @@ interface ContractFormProps {
   isSubmitting: boolean
   error: string | null
   onSubmit: (values: ContractFormValues) => void
+  /** Content fields are read-only (approved contracts: only status changes). */
+  contentLocked?: boolean
+  /** Offer the lifecycle status select (approved, active, expired, ...). */
+  showLifecycleStatus?: boolean
 }
 
 export function ContractForm({
@@ -80,7 +80,10 @@ export function ContractForm({
   isSubmitting,
   error,
   onSubmit,
+  contentLocked = false,
+  showLifecycleStatus = false,
 }: ContractFormProps) {
+  const fieldsDisabled = isSubmitting || contentLocked
   const [values, setValues] = useState<ContractFormValues>(
     () => initialValues ?? EMPTY_VALUES,
   )
@@ -125,7 +128,7 @@ export function ContractForm({
           error={errors.title}
           hint="A short name that identifies this agreement."
           maxLength={255}
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
           required
         />
 
@@ -139,7 +142,7 @@ export function ContractForm({
           error={errors.contract_type}
           hint="For example: Vendor agreement, NDA, Service agreement."
           maxLength={64}
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
           required
         />
 
@@ -153,7 +156,7 @@ export function ContractForm({
           error={errors.counterparty_name}
           hint="The organisation or person on the other side."
           maxLength={255}
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
           required
         />
 
@@ -169,7 +172,7 @@ export function ContractForm({
           }
           error={errors.contract_value}
           hint="Optional. Leave blank if the value is not fixed."
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
         />
 
         <TextField
@@ -184,7 +187,7 @@ export function ContractForm({
           maxLength={3}
           autoComplete="off"
           spellCheck={false}
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
           required
         />
 
@@ -196,7 +199,7 @@ export function ContractForm({
           onChange={(event) =>
             updateField('start_date', event.target.value)
           }
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
         />
 
         <TextField
@@ -207,10 +210,10 @@ export function ContractForm({
           value={values.end_date}
           onChange={(event) => updateField('end_date', event.target.value)}
           error={errors.end_date}
-          disabled={isSubmitting}
+          disabled={fieldsDisabled}
         />
 
-        {mode === 'edit' && (
+        {mode === 'edit' && showLifecycleStatus && (
           <div className="field">
             <label className="field__label" htmlFor="contract-status">
               Status
@@ -228,14 +231,20 @@ export function ContractForm({
               }
               disabled={isSubmitting}
             >
-              {STATUS_OPTIONS.map((status) => (
+              {[
+                ...(initialValues?.status === 'approved'
+                  ? (['approved'] as ContractStatus[])
+                  : []),
+                ...LIFECYCLE_OPTIONS,
+              ].map((status) => (
                 <option key={status} value={status}>
                   {formatStatus(status)}
                 </option>
               ))}
             </select>
             <p className="field__hint">
-              Approval workflow rules will be added in a later phase.
+              An approved contract's terms are fixed. You can move it through
+              its lifecycle here.
             </p>
           </div>
         )}
@@ -254,7 +263,7 @@ export function ContractForm({
             onChange={(event) =>
               updateField('description', event.target.value)
             }
-            disabled={isSubmitting}
+            disabled={fieldsDisabled}
           />
           <p className="field__hint">
             Optional internal context. Do not paste confidential document

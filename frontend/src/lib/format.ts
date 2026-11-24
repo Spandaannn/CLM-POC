@@ -41,6 +41,35 @@ const STATUS_LABELS: Record<string, string> = {
   terminated: 'Terminated',
 }
 
+const WORKFLOW_LABELS: Record<string, string> = {
+  not_submitted: 'Not submitted',
+  pending_reviewer: 'Awaiting legal review',
+  pending_approver: 'Awaiting final approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  changes_requested: 'Changes requested',
+}
+
+export function formatWorkflowStatus(status: string): string {
+  return WORKFLOW_LABELS[status] ?? status.replaceAll('_', ' ')
+}
+
+export function getWorkflowBadgeClass(status: string): string {
+  switch (status) {
+    case 'approved':
+      return 'badge--success'
+    case 'rejected':
+      return 'badge--danger'
+    case 'changes_requested':
+      return 'badge--warning'
+    case 'pending_reviewer':
+    case 'pending_approver':
+      return 'badge--brand'
+    default:
+      return 'badge--muted'
+  }
+}
+
 export function formatStatus(status: string): string {
   return STATUS_LABELS[status] ?? status.replaceAll('_', ' ')
 }

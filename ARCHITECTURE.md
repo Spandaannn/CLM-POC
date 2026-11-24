@@ -101,6 +101,8 @@ API request -> validate input -> check access -> service logic
 | approvals | Contract reference, approver, decision, comments, timestamps |
 | audit_events | Actor, action, target, timestamp, relevant change details |
 
+Implementation note (Step 10): the approval workflow stores its state in `approval_cycles` (one row per submission cycle) and an append-only `approval_actions` log instead of the single `approvals` table proposed above, which is kept but unused. Contract `status` values `draft`, `pending_review`, `approved` and `rejected` are set only by that workflow.
+
 Primary keys identify individual records. Foreign keys link related records; for example, `contract_documents.contract_id` references `contracts.id`.
 
 ## 6. Contract file storage
@@ -139,6 +141,10 @@ Review flow:
 Initial output may include a summary, missing clauses, possible risks, suggested changes, and clause references where available. Model outputs can be incorrect and must not be treated as authoritative legal advice or approval.
 
 Configure request timeouts, bounded retries, size limits, and cost controls. Treat contract text as untrusted input, not instructions. Do not send confidential contracts to an external provider until its retention, training-use, and privacy terms are approved. A long-running review should return a job identifier once background processing is introduced.
+
+### Approval workflow (implemented, Step 10)
+
+Contracts move through a two-stage approval: the creator submits a draft and assigns a Legal Reviewer and a Legal Approver; the reviewer recommends (or requests changes / rejects); the approver approves (or requests changes / rejects). State is held per submission in `approval_cycles` (statuses `pending_reviewer`, `pending_approver`, `approved`, `rejected`, `changes_requested`) with an append-only `approval_actions` log (actor, stage, comment, timestamp). Requesting changes returns the contract to `draft`; resubmitting creates cycle N+1 and keeps earlier cycles. `contracts.status` follows the workflow (`pending_review`, `approved`, `rejected`, `draft`) and can no longer be set by a plain edit; content and documents are editable only in `draft`, so a submitted version cannot change silently. All rules are enforced in `app/services/approvals.py` inside one transaction that locks the contract row; a single `available_actions` function drives both enforcement and what the UI offers. The creator can never decide on their own contract, reviewer and approver must be different active users with the correct roles, and AI review findings are advisory and have no effect on workflow state. See HANDOFF.md for transitions, endpoints and limitations.
 
 ## 8. Session authentication and authorization
 

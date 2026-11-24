@@ -233,3 +233,99 @@ export interface ReviewDetail extends ReviewListItem {
   }
   disclaimer: string
 }
+
+// ---- Approval workflow (Step 10) --------------------------------------------
+
+/** What the signed-in user may do right now (computed by the server). */
+export type WorkflowAction =
+  | 'submit'
+  | 'resubmit'
+  | 'recommend'
+  | 'request_changes'
+  | 'reject'
+  | 'approve'
+
+export type WorkflowStatus =
+  | 'not_submitted'
+  | 'pending_reviewer'
+  | 'pending_approver'
+  | 'approved'
+  | 'rejected'
+  | 'changes_requested'
+
+export interface UserRef {
+  id: string
+  full_name: string
+  role: string
+}
+
+export interface Assignee extends UserRef {
+  email: string
+}
+
+export interface AssigneesResponse {
+  reviewers: Assignee[]
+  approvers: Assignee[]
+}
+
+export interface ApprovalActionRecord {
+  id: string
+  sequence: number
+  action_type: string
+  stage: string
+  actor: UserRef | null
+  comment: string | null
+  created_at: string
+}
+
+export interface ApprovalCycle {
+  id: string
+  cycle_number: number
+  status: string
+  reviewer: UserRef
+  approver: UserRef
+  submitted_by: UserRef
+  document_version: number | null
+  submitted_at: string
+  completed_at: string | null
+  actions: ApprovalActionRecord[]
+}
+
+export interface ApprovalState {
+  contract_id: string
+  contract_status: string
+  workflow_status: WorkflowStatus
+  current_cycle: ApprovalCycle | null
+  /** Every cycle, newest first. */
+  cycles: ApprovalCycle[]
+  available_actions: WorkflowAction[]
+  content_locked: boolean
+  advisory_note: string
+}
+
+export interface SubmitApprovalRequest {
+  reviewer_id: string
+  approver_id: string
+  comment: string | null
+}
+
+export interface QueueItem {
+  contract_id: string
+  contract_number: string
+  title: string
+  counterparty_name: string
+  cycle_number: number
+  status: string
+  reviewer_name: string
+  approver_name: string
+  submitted_by_name: string
+  updated_at: string
+}
+
+export interface ApprovalSummary {
+  awaiting_my_action: QueueItem[]
+  my_contracts: QueueItem[]
+  awaiting_my_action_count: number
+  under_approval_count: number
+  changes_requested_count: number
+}

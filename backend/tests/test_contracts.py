@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.cookies import CSRF_HEADER_NAME
 from app.models.audit_event import AuditEvent
@@ -215,7 +215,7 @@ def test_create_and_update_require_csrf(client, user_factory) -> None:
 
 
 def test_list_supports_pagination_search_and_filters(
-    client, user_factory
+    client, db_session, user_factory
 ) -> None:
     user = user_factory()
     csrf = login(client, user.email)
@@ -242,10 +242,14 @@ def test_list_supports_pagination_search_and_filters(
         contract_type="Service agreement",
     ).json()
 
-    pending = update_contract(
-        client, csrf, gamma["id"], status="pending_review"
+    # pending_review is now controlled by the approval workflow (a plain
+    # PATCH can no longer set it), so put one contract in that state directly.
+    db_session.execute(
+        update(Contract)
+        .where(Contract.id == UUID(gamma["id"]))
+        .values(status="pending_review")
     )
-    assert pending.status_code == 200
+    db_session.commit()
 
     first_page = client.get("/api/contracts?page=1&page_size=2").json()
     assert first_page["total"] == 3
@@ -394,7 +398,6 @@ def test_update_records_changed_fields_in_audit_event(
         created["id"],
         title="Renewed vendor agreement",
         contract_value="2500.50",
-        status="pending_review",
         end_date="2027-12-31",
     )
 
@@ -402,7 +405,7 @@ def test_update_records_changed_fields_in_audit_event(
     body = response.json()
     assert body["title"] == "Renewed vendor agreement"
     assert body["contract_value"] == "2500.50"
-    assert body["status"] == "pending_review"
+    assert body["status"] == "draft"
     assert body["end_date"] == "2027-12-31"
     assert body["contract_number"] == created["contract_number"]
     assert body["created_by"] == created["created_by"]
@@ -424,10 +427,7 @@ def test_update_records_changed_fields_in_audit_event(
         "from": "125000.00",
         "to": "2500.50",
     }
-    assert changes["status"] == {
-        "from": "draft",
-        "to": "pending_review",
-    }
+    assert "status" not in changes
     assert changes["end_date"] == {
         "from": "2026-12-31",
         "to": "2027-12-31",

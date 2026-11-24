@@ -5,6 +5,7 @@ import { DocumentsSection } from './DocumentsSection'
 interface ContractFilesAndReviewsProps {
   contractId: string
   canUpload: boolean
+  lockedReason?: string | null
 }
 
 /**
@@ -14,6 +15,7 @@ interface ContractFilesAndReviewsProps {
 export function ContractFilesAndReviews({
   contractId,
   canUpload,
+  lockedReason = null,
 }: ContractFilesAndReviewsProps) {
   const documents = useDocuments(contractId)
 
@@ -23,6 +25,7 @@ export function ContractFilesAndReviews({
         contractId={contractId}
         documents={documents}
         canUpload={canUpload}
+        lockedReason={lockedReason}
       />
       <AiReviewsSection contractId={contractId} documents={documents} />
     </>

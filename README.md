@@ -4,10 +4,11 @@ A proof of concept for a Legal Department to manage contracts. It currently
 provides secure session-based sign-in, end-to-end **contract metadata
 management** (create, list, search, filter, view, edit) with role/ownership
 authorization and an audit trail, **versioned PDF/DOCX documents** per
-contract, and optional **AI-assisted contract review** (Groq).
-
-Approval workflows are designed (see [ARCHITECTURE.md](ARCHITECTURE.md)) but
-**not implemented yet**.
+contract, optional **AI-assisted contract review** (Groq), and a two-stage
+**approval workflow** (Legal Reviewer, then Legal Approver) with request-changes,
+rejection, and resubmission history. Contract status is controlled by that
+workflow (see [ARCHITECTURE.md](ARCHITECTURE.md)). Obligation tracking is
+designed but **not implemented yet**.
 
 ## Architecture
 
@@ -36,7 +37,8 @@ PostgreSQL 18 (clm_db)
   - List with search (title, number, counterparty), status and type filters,
     pagination; loading, error, empty, and no-match states.
   - Create (server-generated `CTR-<year>-<hex>` number, starts as draft).
-  - Detail page; edit page (metadata and status).
+  - Detail page; edit page (metadata while a draft; after approval only the
+    lifecycle status can change, because approval states are set by the workflow).
   - Authorization: business users see/edit only their own contracts; legal
     reviewers and approvers can view all; admins can view and edit all.
   - `contract.created` / `contract.updated` audit events with field-level diffs.
@@ -46,6 +48,14 @@ PostgreSQL 18 (clm_db)
   history, authorised download, and `document.uploaded` audit events. Files are
   stored on the local disk under `DOCUMENT_STORAGE_PATH`; content is verified,
   not just the extension.
+- **Approval workflow (Step 10):** a creator submits a draft with a document
+  and picks a Legal Reviewer and Legal Approver. The reviewer recommends,
+  requests changes, or rejects; the approver gives final approval, requests
+  changes, or rejects. Changes sent back reopen the draft for edit and
+  resubmission as a new cycle, with all earlier cycles kept. Decisions are
+  validated on the server, comments are mandatory for rejections and change
+  requests, the creator can never approve their own contract, and a contract
+  is locked while under approval. The dashboard shows an approval queue.
 - **AI review (Step 9, optional):** on a contract with a document, click
   **Run AI review** to get an executive summary, extracted metadata and
   clauses, risk findings with verified source excerpts, a comparison with a
@@ -132,14 +142,15 @@ cd backend;  .\.venv\Scripts\python.exe -m pytest -q
 cd frontend; npm run lint; npm run build
 ```
 
-Last run (2026-11-24): backend **150 passed**; lint exit 0 (0 warnings);
+Last run (2026-11-25): backend **203 passed**; lint exit 0 (0 warnings);
 build exit 0. Backend tests use the real PostgreSQL database inside a
 rolled-back transaction, so they must not assume tables are empty; a dedicated
 test database is recommended.
 
 ## Limitations
 
-- No approvals or obligations yet. AI review output varies, can be wrong, and
+- No obligations yet. The approval workflow has one reviewer and one approver
+  per cycle, no notifications, e-signature, or delegation. AI review output varies, can be wrong, and
   is limited by the provider's rate limits (free-tier Groq: short contracts
   only); no OCR for scanned PDFs.
 - One logical document per contract (versions only); no document or contract

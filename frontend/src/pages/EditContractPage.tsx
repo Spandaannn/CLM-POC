@@ -89,6 +89,27 @@ export function EditContractPage() {
       (user.role === 'admin' || contract.created_by === user.id),
   )
 
+  if (contract && canEdit && ['pending_review', 'rejected'].includes(contract.status)) {
+    return (
+      <PageMessage
+        eyebrow="Locked"
+        title="This contract cannot be edited"
+        action={
+          <Link
+            className="button button--secondary"
+            to={`/contracts/${contract.id}`}
+          >
+            Back to contract
+          </Link>
+        }
+      >
+        {contract.status === 'pending_review'
+          ? 'It is under approval. It can be edited again only if changes are requested.'
+          : 'It was rejected and can no longer be edited.'}
+      </PageMessage>
+    )
+  }
+
   if (!contract || !canEdit) {
     return (
       <PageMessage
@@ -134,6 +155,8 @@ export function EditContractPage() {
         <ContractForm
           mode="edit"
           initialValues={contractToFormValues(contract)}
+          contentLocked={contract.status !== 'draft'}
+          showLifecycleStatus={contract.status !== 'draft'}
           isSubmitting={isSubmitting}
           error={submitError}
           onSubmit={handleSubmit}

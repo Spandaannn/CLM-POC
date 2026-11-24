@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { Alert } from '../components/Alert'
+import { ApprovalSection } from '../components/ApprovalSection'
 import { Button } from '../components/Button'
 import { ContractFilesAndReviews } from '../components/ContractFilesAndReviews'
 import { PageMessage } from '../components/PageMessage'
@@ -19,6 +21,20 @@ interface DetailLocationState {
   updated?: boolean
 }
 
+/** Why documents are locked for this status (null = open for uploads). */
+function documentLockReason(status: string): string | null {
+  switch (status) {
+    case 'draft':
+      return null
+    case 'pending_review':
+      return 'Documents are locked while this contract is under approval. They can be changed again only if changes are requested.'
+    case 'rejected':
+      return 'Documents are locked because this contract was rejected.'
+    default:
+      return 'Documents are fixed because this contract has been approved.'
+  }
+}
+
 export function ContractDetailPage() {
   const { contractId } = useParams<{ contractId: string }>()
   const { user } = useAuth()
@@ -26,6 +42,8 @@ export function ContractDetailPage() {
   const locationState = location.state as DetailLocationState | null
 
   const { state, reload } = useContract(contractId)
+  // Survives the refresh that follows an approval action.
+  const [flash, setFlash] = useState<string | null>(null)
 
   if (state.status === 'loading') {
     return (
@@ -111,7 +129,8 @@ export function ContractDetailPage() {
           <Link className="button button--secondary" to="/contracts">
             Back to contracts
           </Link>
-          {canEdit && (
+          {canEdit &&
+            !['pending_review', 'rejected'].includes(contract.status) && (
             <Link
               className="button button--primary"
               to={`/contracts/${contract.id}/edit`}
@@ -128,6 +147,7 @@ export function ContractDetailPage() {
       {locationState?.updated && (
         <Alert variant="success">Contract updated successfully.</Alert>
       )}
+      {flash && <Alert variant="success">{flash}</Alert>}
 
       <div className="detail-grid">
         <section className="detail-card" aria-labelledby="overview-title">
@@ -192,7 +212,19 @@ export function ContractDetailPage() {
         </p>
       </section>
 
-      <ContractFilesAndReviews contractId={contract.id} canUpload={canEdit} />
+      <ApprovalSection
+        contractId={contract.id}
+        onChanged={(message) => {
+          setFlash(message)
+          reload()
+        }}
+      />
+
+      <ContractFilesAndReviews
+        contractId={contract.id}
+        canUpload={canEdit}
+        lockedReason={documentLockReason(contract.status)}
+      />
     </div>
   )
 }

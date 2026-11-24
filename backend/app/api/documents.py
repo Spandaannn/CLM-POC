@@ -62,6 +62,8 @@ def upload_document(
     contract = contract_service.get_contract_for_update(
         db, contract_id, current_user
     )
+    # A submitted/approved version must not change silently.
+    contract_service.ensure_content_editable(contract, "updated with new documents")
 
     display_name = document_service.safe_display_filename(file.filename)
     content = document_service.read_limited(file)

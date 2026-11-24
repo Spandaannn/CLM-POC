@@ -2,8 +2,9 @@
 
 The frontend for the CLM proof of concept: application shell, session-based
 sign-in, protected routing, a dashboard, and contract management (list with
-search/filters/pagination, create, detail, edit). Document, review, and approval
-features are **not implemented** yet.
+search/filters/pagination, create, detail, edit), versioned documents, AI
+reviews, and the approval workflow. Obligation tracking is **not implemented**
+yet.
 
 ## Contract screens (Step 7)
 
@@ -13,6 +14,19 @@ features are **not implemented** yet.
 | `/contracts/new` | `NewContractPage` | Client-side validation mirrors the API; new contracts start as drafts |
 | `/contracts/:id` | `ContractDetailPage` | 404 / 403 / connection-error states; Edit shown only to creator or admin; includes the Documents section |
 | `/contracts/:id/edit` | `EditContractPage` | Same form plus status; server still enforces permissions |
+
+### Approval workflow (Step 10)
+
+`components/ApprovalSection.tsx` (top of the contract page's workflow area):
+status badge, progress steps, assigned reviewer/approver, role-based action
+buttons (only what the server's `available_actions` allows), a submit/resubmit
+form, an inline confirmation panel for each decision (mandatory comments clearly
+marked; warnings for reject and final approval; Cancel), and a per-cycle
+timeline of decisions and comments. After an action the page reloads the
+contract and shows a confirmation message. `components/ApprovalSummaryPanel.tsx`
+adds an approval queue to the dashboard. The contract edit form no longer offers
+workflow statuses; approved contracts show read-only content with a lifecycle
+status select.
 
 ### AI review (Step 9)
 
@@ -239,6 +253,15 @@ npm run preview  # preview the production build on 4173
      false sign-out.
 
 ## Verification performed
+
+### Step 10 — approval workflow (2026-11-25)
+
+`npm run lint` -> exit 0, 0 warnings; `npm run build` -> exit 0, 64 modules.
+Browser-verified with temporary creator, reviewer, and approver accounts: submit
+(and refusal without a document), locked state, mandatory comments, request
+changes, edit and resubmit (cycle 2), recommend, final-approval confirmation and
+Cancel, approved end state and lifecycle edit, rejection, and the dashboard
+queue. No automated UI tests.
 
 ### Step 9 — AI review (2026-11-24)
 

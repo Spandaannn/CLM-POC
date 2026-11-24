@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { ApprovalSummaryPanel } from '../components/ApprovalSummaryPanel'
 import { formatRole, getFirstName } from '../lib/format'
 
 interface PlannedModule {
@@ -26,18 +27,21 @@ const PLANNED_MODULES: PlannedModule[] = [
     title: 'Documents',
     description:
       'Versioned PDF and DOCX storage with authorized downloads.',
+    to: '/contracts',
   },
   {
     number: '03',
     title: 'AI Reviews',
     description:
       'Assisted summaries and risk findings, always subject to human review.',
+    to: '/contracts',
   },
   {
     number: '04',
     title: 'Approvals',
     description:
-      'Review decisions and approval history for contracts and clauses.',
+      'Legal review and final approval with a full decision history.',
+    to: '/contracts',
   },
 ]
 
@@ -61,9 +65,9 @@ export function DashboardPage() {
             Welcome back, {getFirstName(user.full_name)}.
           </h1>
           <p className="dashboard-hero__lead">
-            You are signed in with the {formatRole(user.role)} role. Contract
-            metadata is available now. Document, review, and approval features
-            will appear here as they are implemented.
+            You are signed in with the {formatRole(user.role)} role. Manage
+            contracts, documents, AI reviews, and approvals from each
+            contract&apos;s page.
           </p>
         </div>
 
@@ -103,6 +107,8 @@ export function DashboardPage() {
         </dl>
       </section>
 
+      <ApprovalSummaryPanel />
+
       <section className="dashboard-section" aria-labelledby="modules-title">
         <div className="section-heading">
           <div>
@@ -110,8 +116,8 @@ export function DashboardPage() {
             <h2 id="modules-title">Workspace modules</h2>
           </div>
           <p>
-            Contracts is available. Document, review, and approval features
-            are planned for later phases.
+            Documents, AI reviews, and approvals are used from within a
+            contract.
           </p>
         </div>
 
@@ -123,14 +129,12 @@ export function DashboardPage() {
               </span>
               <h3>{module.title}</h3>
               <p>{module.description}</p>
-              {module.to ? (
+              {module.to && (
                 <Link className="text-link" to={module.to}>
-                  Open contracts
+                  {module.title === 'Contracts'
+                    ? 'Open contracts'
+                    : 'Available in each contract'}
                 </Link>
-              ) : (
-                <span className="badge badge--muted">
-                  Not implemented yet
-                </span>
               )}
             </article>
           ))}
@@ -141,9 +145,9 @@ export function DashboardPage() {
         <p className="eyebrow">Activity</p>
         <h2 id="activity-title">Recent activity is not shown yet</h2>
         <p>
-          Contract metadata is managed in the Contracts section. An activity
-          feed for document uploads, review findings, and approvals will be
-          added with those features.
+          Every action is recorded in the audit log, but a combined activity
+          feed has not been built yet. Each contract shows its own document,
+          review, and approval history.
         </p>
       </section>
     </div>

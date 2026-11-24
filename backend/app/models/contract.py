@@ -16,6 +16,7 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.approval import Approval
+    from app.models.approval_cycle import ApprovalCycle
     from app.models.audit_event import AuditEvent
     from app.models.contract_document import ContractDocument
     from app.models.obligation import Obligation
@@ -79,6 +80,12 @@ class Contract(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     approvals: Mapped[list[Approval]] = relationship(
         back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    approval_cycles: Mapped[list[ApprovalCycle]] = relationship(
+        back_populates="contract",
+        order_by="ApprovalCycle.cycle_number",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
