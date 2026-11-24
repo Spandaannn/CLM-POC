@@ -1,0 +1,10 @@
+# Stay on the 2.0 line: 2.1 requires compiled C extensions, which can be
+# blocked by Windows Application Control policies. 2.0 falls back to Python.
+SQLAlchemy>=2.0,<2.1
+alembic>=1.13,<2.0
+psycopg[binary]>=3.2,<4.0
+pydantic-settings>=2.2,<3.0
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+pwdlib[argon2]>=0.2,<1.0
+email-validator>=2.0,<3.0
